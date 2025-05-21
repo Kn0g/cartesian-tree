@@ -1,14 +1,10 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Cartesian Tree Library
+//!
+//! This crate provides a tree-based coordinate system where each frame has a position
+//! and orientation relative to its parent. You can create hierarchical transformations
+//! and convert poses between frames.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod frame;
+mod orientation;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use frame::{Frame, FrameExt, FrameRef};
