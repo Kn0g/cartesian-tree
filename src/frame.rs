@@ -1,10 +1,11 @@
+use crate::CartesianTreeError;
+use crate::Pose;
 use crate::orientation::IntoOrientation;
+use crate::tree::{HasChildren, HasParent, NodeEquality};
+
 use nalgebra::{Isometry3, Translation3, Vector3};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-
-/// A shared, mutable reference to a [`Frame`].
-pub type FrameRef = Rc<RefCell<Frame>>;
 
 /// Represents a coordinate frame in a Cartesian tree structure.
 ///
@@ -12,15 +13,21 @@ pub type FrameRef = Rc<RefCell<Frame>>;
 /// transformation (position and orientation) relative to its parent.
 ///
 /// Root frames (created via `Frame::new_origin`) have no parent and use the identity transform.
+#[derive(Clone, Debug)]
 pub struct Frame {
+    pub(crate) data: Rc<RefCell<FrameData>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct FrameData {
     /// The name of the frame (must be unique among siblings).
-    name: String,
+    pub(crate) name: String,
     /// Reference to the parent frame.
-    parent: Option<Weak<RefCell<Frame>>>,
+    parent: Option<Weak<RefCell<FrameData>>>,
     /// Transformation from this frame to its parent frame.
     transform_to_parent: Isometry3<f64>,
     /// Child frames directly connected to this frame.
-    children: Vec<FrameRef>,
+    children: Vec<Frame>,
 }
 
 impl Frame {
@@ -36,31 +43,116 @@ impl Frame {
     ///
     /// let origin = Frame::new_origin("world");
     /// ```
-    pub fn new_origin(name: impl Into<String>) -> FrameRef {
-        Rc::new(RefCell::new(Frame {
-            name: name.into(),
-            parent: None,
-            transform_to_parent: Isometry3::identity(),
-            children: Vec::new(),
-        }))
+    pub fn new_origin(name: impl Into<String>) -> Self {
+        Frame {
+            data: Rc::new(RefCell::new(FrameData {
+                name: name.into(),
+                parent: None,
+                children: Vec::new(),
+                transform_to_parent: Isometry3::identity(),
+            })),
+        }
     }
-}
 
-impl std::fmt::Debug for Frame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Frame")
-            .field("name", &self.name)
-            .field("transform_to_parent", &self.transform_to_parent)
-            .field("children", &self.children.len())
-            .finish()
+    pub(crate) fn borrow(&self) -> std::cell::Ref<FrameData> {
+        self.data.borrow()
     }
-}
 
-/// Extension trait for [`FrameRef`] to allow adding child frames.
-///
-/// This trait enables ergonomic methods on shared frame references,
-/// such as `add_child(...)`, which adds a new frame as a child of the current one.
-pub trait FrameExt {
+    fn borrow_mut(&self) -> std::cell::RefMut<FrameData> {
+        self.data.borrow_mut()
+    }
+
+    pub(crate) fn downgrade(&self) -> Weak<RefCell<FrameData>> {
+        Rc::downgrade(&self.data)
+    }
+
+    pub(crate) fn walk_up_and_transform(
+        &self,
+        target: &Frame,
+    ) -> Result<Isometry3<f64>, CartesianTreeError> {
+        let mut transform = Isometry3::identity();
+        let mut current = self.clone();
+
+        while !current.is_same(target) {
+            let transform_to_its_parent = {
+                // Scope borrow
+                let current_data = current.borrow();
+
+                // If current frame is root and not target, then target is not an ancestor.
+                if current_data.parent.is_none() {
+                    return Err(CartesianTreeError::IsNoAncestor(target.name(), self.name()));
+                }
+                current_data.transform_to_parent
+            };
+
+            transform = transform_to_its_parent * transform;
+
+            let parent_frame_opt = current.parent();
+            current = parent_frame_opt
+                .ok_or_else(|| CartesianTreeError::IsNoAncestor(target.name(), self.name()))?;
+        }
+
+        Ok(transform)
+    }
+
+    /// Returns the name of the frame.
+    pub fn name(&self) -> String {
+        self.borrow().name.clone()
+    }
+
+    /// Returns the transformation from this frame to its parent frame.
+    ///
+    /// # Returns
+    /// - `Ok(Isometry3<f64>)` if the frame has a parent.
+    /// - `Err(String)` if the frame has no parent.
+    pub fn transform_to_parent(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
+        if self.parent().is_none() {
+            return Err(CartesianTreeError::RootHasNoParent(self.name()));
+        }
+        Ok(self.borrow().transform_to_parent)
+    }
+
+    /// Updates the frame's transformation relative to its parent.
+    ///
+    /// This method modifies the frame's position and orientation relative to its parent frame.
+    /// It fails if the frame is a root frame (i.e., has no parent).
+    ///
+    /// # Arguments
+    /// - `position`: A 3D vector representing the new translational offset from the parent.
+    /// - `orientation`: An orientation convertible into a unit quaternion for new orientational offset from the parent.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the transformation was updated successfully.
+    /// - `Err(String)` if the frame has no parent.
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let child = root
+    ///     .add_child("camera", Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity())
+    ///     .unwrap();
+    /// child.update_transform(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+    ///     .unwrap();
+    /// ```
+    pub fn update_transform<O>(
+        &self,
+        position: Vector3<f64>,
+        orientation: O,
+    ) -> Result<(), CartesianTreeError>
+    where
+        O: IntoOrientation,
+    {
+        if self.parent().is_none() {
+            return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
+        }
+        self.borrow_mut().transform_to_parent =
+            Isometry3::from_parts(Translation3::from(position), orientation.into_orientation());
+        Ok(())
+    }
+
     /// Adds a new child frame to the current frame.
     ///
     /// The child is positioned and oriented relative to this frame.
@@ -72,9 +164,13 @@ pub trait FrameExt {
     /// - `position`: A 3D vector representing the translational offset from the parent.
     /// - `orientation`: An orientation convertible into a unit quaternion.
     ///
+    /// # Returns
+    /// - `Ok(Rc<Frame>)` the newly added child frame.
+    /// - `Err(String)` if a child with the same name already exists.
+    ///
     /// # Example
     /// ```
-    /// use cartesian_tree::{Frame, FrameExt};
+    /// use cartesian_tree::Frame;
     /// use nalgebra::{Vector3, UnitQuaternion};
     ///
     /// let root = Frame::new_origin("base");
@@ -82,23 +178,12 @@ pub trait FrameExt {
     ///     .add_child("camera", Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity())
     ///     .unwrap();
     /// ```
-    fn add_child<O>(
+    pub fn add_child<O>(
         &self,
         name: impl Into<String>,
         position: Vector3<f64>,
         orientation: O,
-    ) -> Result<FrameRef, String>
-    where
-        O: IntoOrientation;
-}
-
-impl FrameExt for FrameRef {
-    fn add_child<O>(
-        &self,
-        name: impl Into<String>,
-        position: Vector3<f64>,
-        orientation: O,
-    ) -> Result<FrameRef, String>
+    ) -> Result<Frame, CartesianTreeError>
     where
         O: IntoOrientation,
     {
@@ -110,24 +195,74 @@ impl FrameExt for FrameRef {
                 .iter()
                 .any(|child| child.borrow().name == child_name)
             {
-                return Err(format!(
-                    "A child with name '{}' already exists!",
-                    child_name
+                return Err(CartesianTreeError::ChildNameConflict(
+                    child_name,
+                    self.name(),
                 ));
             }
         }
         let quat = orientation.into_orientation();
         let transform = Isometry3::from_parts(Translation3::from(position), quat);
 
-        let child = Rc::new(RefCell::new(Frame {
-            name: child_name,
-            parent: Some(Rc::downgrade(self)),
-            transform_to_parent: transform,
-            children: Vec::new(),
-        }));
+        let child = Frame {
+            data: Rc::new(RefCell::new(FrameData {
+                name: child_name,
+                parent: Some(Rc::downgrade(&self.data)),
+                children: Vec::new(),
+                transform_to_parent: transform,
+            })),
+        };
 
-        self.borrow_mut().children.push(Rc::clone(&child));
+        self.borrow_mut().children.push(child.clone());
         Ok(child)
+    }
+
+    /// Adds a pose to the current frame.
+    ///
+    /// # Arguments
+    /// - `position`: The translational part of the pose.
+    /// - `orientation`: The orientational part of the pose.
+    ///
+    /// # Returns
+    /// - The newly added pose.
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Vector3, UnitQuaternion};
+    ///
+    /// let frame = Frame::new_origin("base");
+    /// let pose = frame.add_pose(Vector3::new(0.5, 0.0, 0.0), UnitQuaternion::identity());
+    /// ```
+    pub fn add_pose<O>(&self, position: Vector3<f64>, orientation: O) -> Pose
+    where
+        O: IntoOrientation,
+    {
+        Pose::new(self.downgrade(), position, orientation)
+    }
+}
+
+impl HasParent for Frame {
+    type Node = Frame;
+
+    fn parent(&self) -> Option<Self::Node> {
+        self.borrow()
+            .parent
+            .clone()
+            .and_then(|data_weak| data_weak.upgrade().map(|data_rc| Frame { data: data_rc }))
+    }
+}
+
+impl NodeEquality for Frame {
+    fn is_same(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.data, &other.data)
+    }
+}
+
+impl HasChildren for Frame {
+    type Node = Frame;
+    fn children(&self) -> Vec<Frame> {
+        self.borrow().children.clone()
     }
 }
 
@@ -253,10 +388,6 @@ mod tests {
             UnitQuaternion::identity(),
         );
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            "A child with name 'duplicate' already exists!"
-        );
     }
 
     #[test]
@@ -265,5 +396,67 @@ mod tests {
         let frame = Frame::new_origin("root");
         let _borrow = frame.borrow(); // Immutable borrow
         frame.borrow_mut(); // Should panic
+    }
+
+    #[test]
+    fn test_add_pose_to_frame() {
+        let frame = Frame::new_origin("dummy");
+        let pose = frame.add_pose(Vector3::new(1.0, 2.0, 3.0), UnitQuaternion::identity());
+
+        assert_eq!(pose.frame_name().as_deref(), Some("dummy"));
+    }
+
+    #[test]
+    fn test_update_transform() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child(
+                "dummy",
+                Vector3::new(0.0, 0.0, 1.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+        child
+            .update_transform(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+            .unwrap();
+        assert_eq!(
+            child.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(1.0, 0.0, 0.0)
+        );
+
+        // Test root frame error
+        assert!(
+            root.update_transform(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_pose_transformation_between_frames() {
+        let root = Frame::new_origin("root");
+
+        let f1 = root
+            .add_child(
+                "f1",
+                Vector3::new(1.0, 0.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+
+        let f2 = f1
+            .add_child(
+                "f2",
+                Vector3::new(0.0, 2.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+
+        let pose_in_f2 = f2.add_pose(Vector3::new(1.0, 1.0, 0.0), UnitQuaternion::identity());
+
+        let pose_in_root = pose_in_f2.in_frame(&root).unwrap();
+        let pos = pose_in_root.transformation().translation.vector;
+
+        // Total offset should be: f2 (0,2,0) + pose (1,1,0) + f1 (1,0,0)
+        assert!((pos - Vector3::new(2.0, 3.0, 0.0)).norm() < 1e-6);
     }
 }
