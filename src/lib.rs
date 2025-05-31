@@ -4,7 +4,7 @@
 //! and orientation relative to its parent. You can create hierarchical transformations
 //! and convert poses between frames.
 
-mod frame;
-mod orientation;
+pub mod frame;
 
 pub mod tree;
+pub use frame::Frame;
