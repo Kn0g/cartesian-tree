@@ -4,10 +4,12 @@
 //! and orientation relative to its parent. You can create hierarchical transformations
 //! and convert poses between frames.
 
+pub mod errors;
 pub mod frame;
 pub mod orientation;
 pub mod pose;
 
 pub mod tree;
+pub use errors::CartesianTreeError;
 pub use frame::Frame;
 pub use pose::Pose;
