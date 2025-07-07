@@ -5,4 +5,13 @@ edition = "2024"
 
 [dependencies]
 nalgebra = "0.33.2"
+pyo3 = { version = "0.25.0", features = ["extension-module"] , optional = true}
 thiserror = "2.0.12"
+
+[features]
+bindings = ["dep:pyo3"]
+
+[lib]
+name = "cartesian_tree"
+crate-type = ["cdylib", "rlib"]
+
