@@ -8,6 +8,11 @@ on:
     branches:
       - "main"
   workflow_dispatch:
+  workflow_call:
+  outputs:
+      status:
+        description: "The status of the tests"
+        value: ${{ jobs.test.status }}
 
 env:
   CARGO_TERM_COLOR: always
