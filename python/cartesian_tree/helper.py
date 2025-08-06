@@ -1,13 +1,16 @@
 """Defines helper classes for a more pythonic API."""
 
 from __future__ import annotations
+
+from typing import Any
+
 from cartesian_tree import cartesian_tree as _core
 
 
 class RPY:
     """Defines a roll-pitch-yaw angle representation."""
 
-    def __init__(self, roll: float, pitch: float, yaw: float):
+    def __init__(self, roll: float, pitch: float, yaw: float) -> None:
         """Initializes the roll-pitch-yaw angles.
 
         Args:
@@ -33,7 +36,7 @@ class RPY:
         return self._core_rpy.yaw
 
     @property
-    def _binding_structure(self):
+    def _binding_structure(self) -> Any:
         return self._core_rpy
 
     def to_list(self) -> list[float]:
@@ -70,7 +73,7 @@ class RPY:
 class Quaternion:
     """Defines a quaternion."""
 
-    def __init__(self, x: float, y: float, z: float, w: float):
+    def __init__(self, x: float, y: float, z: float, w: float) -> None:
         """Initializes the quaternion.
 
         Args:
@@ -102,7 +105,7 @@ class Quaternion:
         return self._core_quaternion.w
 
     @property
-    def _binding_structure(self):
+    def _binding_structure(self) -> Any:
         return self._core_quaternion
 
     def to_list(self) -> list[float]:
@@ -121,7 +124,7 @@ class Quaternion:
         """
         return (self.x, self.y, self.z, self.w)
 
-    def to_rpy(self):
+    def to_rpy(self) -> RPY:
         """Returns the angles as quaternion.
 
         Returns:
@@ -139,7 +142,7 @@ class Quaternion:
 class Position:
     """Defines a position."""
 
-    def __init__(self, x: float, y: float, z: float):
+    def __init__(self, x: float, y: float, z: float) -> None:
         """Initializes the position in meter.
 
         Args:
@@ -165,7 +168,7 @@ class Position:
         return self._core_position.z
 
     @property
-    def _binding_structure(self):
+    def _binding_structure(self) -> Any:
         return self._core_position
 
     def to_list(self) -> list[float]:
