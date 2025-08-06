@@ -22,7 +22,9 @@ def test_add_child_frame_with_quaternion() -> None:
 
     assert isinstance(child, Frame)
     assert child.name == "child"
-    assert child.parent().name == "base"
+    parent = child.parent()
+    assert parent is not None
+    assert parent.name == "base"
     assert root.children()[0].name == "child"
 
 
@@ -34,7 +36,10 @@ def test_add_child_frame_with_rpy() -> None:
 
     assert isinstance(child, Frame)
     assert child.name == "child_rpy"
-    assert child.parent().name == "world"
+
+    parent = child.parent()
+    assert parent is not None
+    assert parent.name == "world"
 
 
 def test_transformation_to_parent_and_update() -> None:
