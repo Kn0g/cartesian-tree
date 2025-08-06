@@ -4,11 +4,16 @@ build-backend = "maturin"
 
 [project]
 name = "cartesian-tree"
-requires-python = ">=3.8"
+authors = [{name = "Kn0g"}]
+maintainers = [{name = "Kn0g"}]
+description = "Build hierarchical Cartesian coordinate systems to easily transform poses."
+readme = "README.md"
+keywords = ["Cartesian", "coordinate systems", "transform", "poses"]
+license = "MIT"
 classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: 3",
+    "Programming Language :: Python"
 ]
+requires-python = ">=3.8"
 dynamic = ["version"]
 
 [project.optional-dependencies]

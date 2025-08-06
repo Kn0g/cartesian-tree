@@ -1,7 +1,15 @@
 [package]
+authors = ["Kn0g"]
 name = "cartesian-tree"
 version = "0.1.0"
 edition = "2024"
+description = "Build hierarchical Cartesian coordinate systems to easily transform poses."
+homepage = "https://github.com/Kn0g/cartesian-tree"
+readme = "README.md"
+repository = "https://github.com/Kn0g/cartesian-tree"
+license = "MIT"
+keywords = ["Cartesian", "coordinate systems", "transform", "poses"]
+categories = ["coordinate transformation"]
 
 [dependencies]
 nalgebra = "0.33.2"
