@@ -8,13 +8,13 @@ on:
 jobs:
   ci:
     name: Run CI Checks
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/ci.yaml
 
   publish:
     name: Publish Releases
     needs: ci
     if: success()
-    uses: ./.github/workflows/publish.yml
+    uses: ./.github/workflows/publish.yaml
     secrets:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
