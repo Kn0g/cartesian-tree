@@ -32,9 +32,8 @@ exclude = ["tests"]
 
 [tool.ruff]
 target-version = "py38"
-line-length = 88
-indent-width = 4
-
+line-length = 120
+src = ["python"]
 exclude = [
     ".git",
     "__pycache__",
@@ -43,8 +42,10 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-ignore = []
+ignore = ["COM812","ISC001", "SLF001", "D105", "ANN401"]
 unfixable = []
+select = ["ALL"]
+pydocstyle.convention = "google"
 
 [tool.ruff.lint.isort]
 known-local-folder = ["cartesian_tree"]
@@ -56,4 +57,4 @@ skip-magic-trailing-comma = false
 docstring-code-format = true
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E402", "D100"]
+"python/tests/*" = ["D103", "S101"]
