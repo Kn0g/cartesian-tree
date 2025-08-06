@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cartesian_tree import cartesian_tree as _core
+from cartesian_tree import cartesian_tree as _core  # type: ignore[attr-defined]
 
 
 class RPY:

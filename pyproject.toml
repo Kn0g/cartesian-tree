@@ -7,7 +7,6 @@ name = "cartesian-tree"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3",
 ]
 dynamic = ["version"]
@@ -18,7 +17,7 @@ dev = [
     "cartesian_tree[test]",
     "cartesian_tree[build]",
 ]
-lint = ["ruff==0.12.4"]
+lint = ["ruff==0.12.4",  "mypy==1.17.0"]
 test = ["pytest==8.4.1"]
 build = ["maturin==1.8.6"]
 
@@ -58,3 +57,13 @@ docstring-code-format = true
 
 [tool.ruff.lint.per-file-ignores]
 "python/tests/*" = ["D103", "S101"]
+
+[tool.mypy]
+disallow_untyped_defs = true
+warn_unused_ignores = true
+exclude = [
+    "scr/",
+    "venv.*/",
+    "log/",
+    "target/",
+    ]
