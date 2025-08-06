@@ -178,20 +178,10 @@ impl PyPosition {
     }
 
     fn __str__(&self) -> String {
-        format!(
-            "({:.4}, {:.4}, {:.4})",
-            self.x(),
-            self.y(),
-            self.z()
-        )
+        format!("({:.4}, {:.4}, {:.4})", self.x(), self.y(), self.z())
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "({:.4}, {:.4}, {:.4})",
-            self.x(),
-            self.y(),
-            self.z()
-        )
+        format!("({:.4}, {:.4}, {:.4})", self.x(), self.y(), self.z())
     }
 }
