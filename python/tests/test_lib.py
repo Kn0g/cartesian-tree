@@ -1,15 +1,20 @@
+"""Contains unit tests for the library."""
+
 from math import radians
+
 import pytest
-from cartesian_tree import Frame, Position, Quaternion, RPY, Pose
+
+from cartesian_tree import RPY, Frame, Pose, Position, Quaternion
 
 
-def test_create_root_frame():
+def test_create_root_frame() -> None:
     frame = Frame("root")
     assert frame.name == "root"
     assert frame.parent() is None
     assert frame.depth == 0
 
-def test_add_child_frame_with_quaternion():
+
+def test_add_child_frame_with_quaternion() -> None:
     root = Frame("base")
     pos = Position(1.0, 2.0, 3.0)
     quat = Quaternion(0.0, 0.0, 0.0, 1.0)
@@ -20,7 +25,8 @@ def test_add_child_frame_with_quaternion():
     assert child.parent().name == "base"
     assert root.children()[0].name == "child"
 
-def test_add_child_frame_with_rpy():
+
+def test_add_child_frame_with_rpy() -> None:
     root = Frame("world")
     pos = Position(0.0, 0.0, 0.0)
     rpy = RPY(0.0, 0.0, 0.0)
@@ -30,7 +36,8 @@ def test_add_child_frame_with_rpy():
     assert child.name == "child_rpy"
     assert child.parent().name == "world"
 
-def test_transformation_to_parent_and_update():
+
+def test_transformation_to_parent_and_update() -> None:
     root = Frame("root")
     pos = Position(1.0, 2.0, 3.0)
     quat = Quaternion(0.0, 0.0, 0.0, 1.0)
@@ -49,7 +56,8 @@ def test_transformation_to_parent_and_update():
     assert upd_pos.to_tuple() == pytest.approx((5.0, 6.0, 7.0), abs=1e-5)
     assert upd_quat.to_tuple() == pytest.approx((0.0, 0.7071, 0.0, 0.7071), abs=1e-5)
 
-def test_add_pose_and_update():
+
+def test_add_pose_and_update() -> None:
     root = Frame("base")
     pos = Position(1.0, 2.0, 3.0)
     quat = Quaternion(0.0, 0.0, 0.0, 1.0)
@@ -67,7 +75,8 @@ def test_add_pose_and_update():
     up_pos, _ = pose.transformation()
     assert up_pos.to_tuple() == pytest.approx((4.0, 5.0, 6.0), abs=1e-5)
 
-def test_pose_in_frame():
+
+def test_pose_in_frame() -> None:
     base = Frame("base")
     frame_1 = base.add_child("frame1", Position(1, 1, 1), Quaternion(0, 0, 0, 1))
     frame_2 = base.add_child("frame2", Position(-2, 0, 0), RPY(0, 0, radians(90)))
