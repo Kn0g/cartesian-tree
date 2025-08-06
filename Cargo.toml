@@ -1,6 +1,6 @@
 [package]
 authors = ["Kn0g"]
-name = "cartesian-tree"
+name = "CartesianTree"
 version = "0.1.0"
 edition = "2024"
 description = "Build hierarchical Cartesian coordinate systems to easily transform poses."
