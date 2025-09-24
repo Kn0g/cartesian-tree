@@ -54,11 +54,11 @@ impl Frame {
         }
     }
 
-    pub(crate) fn borrow(&self) -> std::cell::Ref<FrameData> {
+    pub(crate) fn borrow(&self) -> std::cell::Ref<'_, FrameData> {
         self.data.borrow()
     }
 
-    fn borrow_mut(&self) -> std::cell::RefMut<FrameData> {
+    fn borrow_mut(&self) -> std::cell::RefMut<'_, FrameData> {
         self.data.borrow_mut()
     }
 
