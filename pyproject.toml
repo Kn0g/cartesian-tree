@@ -30,6 +30,7 @@ build = ["maturin==1.8.6"]
 [tool.maturin]
 bindings = "pyo3"
 python-source = "python"
+module-name = "cartesian_tree._cartesian_tree"
 features = ["bindings"]
 exclude = ["tests"]
 

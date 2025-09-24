@@ -19,4 +19,4 @@ target/
 # Python eco-system
 venv
 **/*/__pycache__
-**/*/cartesian_tree.cpython-*.so
+**/*/*cartesian_tree.cpython-*.so
