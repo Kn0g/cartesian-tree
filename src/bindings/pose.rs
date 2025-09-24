@@ -1,6 +1,5 @@
 use pyo3::prelude::*;
 
-// Import your existing Frame, Pose, CartesianTreeError, IntoOrientation
 use crate::{
     Pose as RustPose,
     bindings::{

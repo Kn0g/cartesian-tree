@@ -23,7 +23,7 @@ use pyo3::prelude::*;
 
 #[cfg(feature = "bindings")]
 #[pymodule]
-#[pyo3(name = "cartesian_tree")]
+#[pyo3(name = "_cartesian_tree")]
 fn cartesian_tree(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<bindings::frame::PyFrame>()?;
     m.add_class::<bindings::pose::PyPose>()?;

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .helper import RPY, Position, Quaternion
-from cartesian_tree import cartesian_tree as _core  # type: ignore[attr-defined]
+from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
 
 
 class Frame:
