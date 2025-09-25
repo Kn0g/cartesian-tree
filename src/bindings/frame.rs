@@ -79,6 +79,12 @@ impl PyFrame {
         self.rust_frame.depth()
     }
 
+    fn root(&self) -> PyFrame {
+        PyFrame {
+            rust_frame: self.rust_frame.root(),
+        }
+    }
+
     fn parent(&self) -> Option<PyFrame> {
         self.rust_frame
             .parent()
