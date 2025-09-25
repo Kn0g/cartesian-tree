@@ -109,6 +109,15 @@ class Frame:
             return None
         return Frame._from_rust(binding_parent)
 
+    def root(self) -> Frame:
+        """Returns the root frame of the tree.
+
+        Returns:
+            The root frame of the tree.
+        """
+        binding_root = self._core_frame.root()
+        return Frame._from_rust(binding_root)
+
     def children(self) -> list[Frame]:
         """Returns the children of the frame.
 

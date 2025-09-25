@@ -13,6 +13,18 @@ def test_create_root_frame() -> None:
     assert frame.parent() is None
     assert frame.depth == 0
 
+def test_tree_structure() -> None:
+    frame = Frame("root")
+    pos = Position(1.0, 2.0, 3.0)
+    quat = Quaternion(0.0, 0.0, 0.0, 1.0)
+    child = frame.add_child("child", pos, quat)
+    grandchild = child.add_child("grandchild", pos, quat)
+    assert grandchild.depth == 2  # noqa: PLR2004
+    parent = grandchild.parent()
+    assert parent is not None
+    assert parent.name == "child"
+    assert grandchild.root().name == "root"
+
 
 def test_add_child_frame_with_quaternion() -> None:
     root = Frame("base")
