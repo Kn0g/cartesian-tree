@@ -54,6 +54,15 @@ pub trait Walking: HasParent<Node = Self> + NodeEquality + Clone {
         Some(current)
     }
 
+    /// Finds the root of this node.
+    ///
+    /// # Returns
+    ///
+    /// The root Node.
+    fn root(&self) -> Self {
+        self.walk_up(self.depth()).unwrap_or_else(|| self.clone())
+    }
+
     /// Finds the lowest common ancestor with another Node.
     ///
     /// # Arguments.
@@ -124,6 +133,21 @@ mod tests {
         assert!(grandchild.walk_up(1).unwrap().is_same(&child));
         assert!(grandchild.walk_up(2).unwrap().is_same(&root));
         assert!(grandchild.walk_up(3).is_none());
+    }
+
+    #[test]
+    fn test_root() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child("child", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+        let grandchild = child
+            .add_child("grandchild", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+
+        assert!(root.root().is_same(&root));
+        assert!(child.root().is_same(&root));
+        assert!(grandchild.root().is_same(&root));
     }
 
     #[test]
