@@ -80,6 +80,11 @@ def test_add_pose_and_update() -> None:
     up_pos, _ = pose.transformation()
     assert up_pos.to_tuple() == pytest.approx((4.0, 5.0, 6.0), abs=1e-5)
 
+    # Access frame
+    frame_of_pose = pose.frame()
+    assert frame_of_pose.name == "base"
+    frame_of_pose.add_child("child_of_pose_frame", pos, quat)
+    assert len(frame_of_pose.children()) == 1
 
 def test_pose_in_frame() -> None:
     base = Frame("base")

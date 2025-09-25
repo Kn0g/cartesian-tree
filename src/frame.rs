@@ -403,7 +403,7 @@ mod tests {
         let frame = Frame::new_origin("dummy");
         let pose = frame.add_pose(Vector3::new(1.0, 2.0, 3.0), UnitQuaternion::identity());
 
-        assert_eq!(pose.frame_name().as_deref(), Some("dummy"));
+        assert_eq!(pose.frame().unwrap().name(), "dummy");
     }
 
     #[test]
