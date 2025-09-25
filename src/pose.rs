@@ -37,27 +37,23 @@ impl Pose {
         }
     }
 
-    /// Returns the name of the frame in which this pose is defined.
+    /// Returns the parent frame of this pose.
     ///
     /// # Returns
-    ///
-    /// `Some(String)` if the parent frame is still valid, or `None` if the frame
+    /// `Some(Frame)` if the parent frame is still valid, or `None` if the frame
     /// has been dropped or no longer exists.
     ///
     /// # Example
-    ///
     /// ```
     /// use cartesian_tree::Frame;
     /// use nalgebra::{Vector3, UnitQuaternion};
     ///
     /// let frame = Frame::new_origin("base");
     /// let pose = frame.add_pose(Vector3::new(0.0, 0.0, 0.0), UnitQuaternion::identity());
-    /// assert_eq!(pose.frame_name().as_deref(), Some("base"));
+    /// assert_eq!(pose.frame().unwrap().name(), "base");
     /// ```
-    pub fn frame_name(&self) -> Option<String> {
-        self.parent
-            .upgrade()
-            .map(|frame| frame.borrow().name.clone())
+    pub fn frame(&self) -> Option<Frame> {
+        self.parent.upgrade().map(|data| Frame { data })
     }
 
     /// Returns the transformation from this pose to its parent frame.

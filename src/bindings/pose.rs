@@ -16,9 +16,10 @@ pub struct PyPose {
 
 #[pymethods]
 impl PyPose {
-    #[getter]
-    fn frame_name(&self) -> Option<String> {
-        self.rust_pose.frame_name()
+    fn frame(&self) -> Option<PyFrame> {
+        self.rust_pose
+            .frame()
+            .map(|frame| PyFrame { rust_frame: frame })
     }
 
     fn transformation(&self) -> (PyPosition, PyQuaternion) {
@@ -68,7 +69,9 @@ impl PyPose {
         let quaternion = isometry.rotation.coords;
         format!(
             "'{}', ({:.2}, {:.2}, {:.2})({:.4}, {:.4}, {:.4}, {:.4}))",
-            self.frame_name().unwrap_or_else(|| "Unknown".to_string()),
+            self.frame()
+                .map(|frame| frame.name())
+                .unwrap_or_else(|| "Unknown".to_string()),
             position.x,
             position.y,
             position.z,

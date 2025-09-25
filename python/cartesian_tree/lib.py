@@ -139,10 +139,9 @@ class Pose:
 
     _core_pose: _core.Pose
 
-    @property
-    def frame_name(self) -> str:
-        """Returns the name of the frame of the pose."""
-        return self._core_pose.frame_name
+    def frame(self) -> Frame:
+        """Returns the frame of the pose."""
+        return Frame._from_rust(self._core_pose.frame())
 
     def transformation(self) -> tuple[Position, Quaternion]:
         """Returns the transformation of the pose to its parent frame.
