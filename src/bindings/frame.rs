@@ -26,7 +26,7 @@ impl PyFrame {
     }
 
     #[getter]
-    fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         self.rust_frame.name()
     }
 
