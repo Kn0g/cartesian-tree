@@ -1,6 +1,7 @@
 use crate::CartesianTreeError;
 use crate::Pose;
 use crate::orientation::IntoOrientation;
+use crate::tree::Walking;
 use crate::tree::{HasChildren, HasParent, NodeEquality};
 
 use nalgebra::{Isometry3, Translation3, Vector3};
@@ -215,6 +216,74 @@ impl Frame {
 
         self.borrow_mut().children.push(child.clone());
         Ok(child)
+    }
+
+    /// Adds a new child frame calibrated such that a reference pose, when expressed in the new frame,
+    /// matches the desired position and orientation.
+    ///
+    /// # Arguments
+    /// - `name`: The name of the new child frame.
+    /// - `desired_position`: The desired position of the reference pose in the new frame.
+    /// - `desired_orientation`: The desired orientation of the reference pose in the new frame.
+    /// - `reference_pose`: The existing pose (in some frame A) used as the calibration reference.
+    ///
+    /// # Returns
+    /// - `Ok(Frame)` the new child frame if successful.
+    /// - `Err(CartesianTreeError)` if the reference frame is invalid, no common ancestor exists,
+    ///   or a child name conflict occurs.
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let reference_pose = root.add_pose(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity());
+    /// let calibrated_child = root.calibrate_child(
+    ///     "calibrated",
+    ///     Vector3::zeros(),
+    ///     UnitQuaternion::identity(),
+    ///     &reference_pose,
+    /// ).unwrap();
+    /// ```
+    pub fn calibrate_child<O>(
+        &self,
+        name: impl Into<String>,
+        desired_position: Vector3<f64>,
+        desired_orientation: O,
+        reference_pose: &Pose,
+    ) -> Result<Frame, CartesianTreeError>
+    where
+        O: IntoOrientation,
+    {
+        let reference_frame = reference_pose.frame().ok_or_else(|| {
+            CartesianTreeError::FrameDropped("Reference pose frame has been dropped".to_string())
+        })?;
+
+        let ancestor = self.lca_with(&reference_frame).ok_or_else(|| {
+            CartesianTreeError::NoCommonAncestor(self.name(), reference_frame.name())
+        })?;
+
+        let t_reference_to_ancestor = reference_frame.walk_up_and_transform(&ancestor)?;
+        let t_pose_to_reference = reference_pose.transformation();
+        let t_pose_to_ancestor = t_reference_to_ancestor * t_pose_to_reference;
+
+        let t_parent_to_ancestor = self.walk_up_and_transform(&ancestor)?;
+        let t_ancestor_to_parent = t_parent_to_ancestor.inverse();
+
+        let desired_pose = Isometry3::from_parts(
+            Translation3::from(desired_position),
+            desired_orientation.into_orientation(),
+        );
+
+        let t_calibrated_to_parent =
+            t_pose_to_ancestor * desired_pose.inverse() * t_ancestor_to_parent;
+
+        self.add_child(
+            name,
+            t_calibrated_to_parent.translation.vector,
+            t_calibrated_to_parent.rotation,
+        )
     }
 
     /// Adds a pose to the current frame.
@@ -458,5 +527,41 @@ mod tests {
 
         // Total offset should be: f2 (0,2,0) + pose (1,1,0) + f1 (1,0,0)
         assert!((pos - Vector3::new(2.0, 3.0, 0.0)).norm() < 1e-6);
+    }
+
+    #[test]
+    fn test_calibrate_child() {
+        let root = Frame::new_origin("root");
+
+        let reference_pose = root.add_pose(
+            Vector3::new(1.0, 2.0, 3.0),
+            UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+        );
+
+        // Calibrate a child where the reference pose should appear at (0,0,0) with identity orientation.
+        let calibrated_frame = root
+            .calibrate_child(
+                "calibrated",
+                Vector3::zeros(),
+                UnitQuaternion::identity(),
+                &reference_pose,
+            )
+            .unwrap();
+
+        let pose_in_calibrated = reference_pose.in_frame(&calibrated_frame).unwrap();
+        let transformation = pose_in_calibrated.transformation();
+
+        assert!((transformation.translation.vector - Vector3::zeros()).norm() < 1e-6);
+        assert!((transformation.rotation.angle() - 0.0).abs() < 1e-6);
+
+        // Verify the child's transform matches the reference pose's original transform.
+        let calibrated_transformation = calibrated_frame.transform_to_parent().unwrap();
+        assert!(
+            (calibrated_transformation.translation.vector - Vector3::new(1.0, 2.0, 3.0)).norm()
+                < 1e-6
+        );
+        assert!(
+            (calibrated_transformation.rotation.angle() - std::f64::consts::FRAC_PI_2).abs() < 1e-6
+        );
     }
 }

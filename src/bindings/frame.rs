@@ -45,6 +45,25 @@ impl PyFrame {
         })
     }
 
+    #[pyo3(signature = (name, desired_position, desired_quaternion, reference_pose))]
+    fn calibrate_child(
+        &self,
+        name: String,
+        desired_position: PyPosition,
+        desired_quaternion: PyQuaternion,
+        reference_pose: &PyPose,
+    ) -> PyResult<PyFrame> {
+        let new_rust_frame = self.rust_frame.calibrate_child(
+            name,
+            desired_position.position,
+            desired_quaternion.quat,
+            &reference_pose.rust_pose,
+        )?;
+        Ok(PyFrame {
+            rust_frame: new_rust_frame,
+        })
+    }
+
     #[pyo3(signature = (position, quaternion))]
     fn add_pose(&self, position: PyPosition, quaternion: PyQuaternion) -> PyPose {
         let rust_pose = self.rust_frame.add_pose(position.position, quaternion.quat);
