@@ -53,6 +53,34 @@ class Frame:
         binding_frame = self._core_frame.add_child(name, position._binding_structure, orientation._binding_structure)
         return Frame._from_rust(binding_frame)
 
+    def calibrate_child(
+        self, name: str, desired_position: Position, desired_orientation: RPY | Quaternion, reference_pose: Pose
+    ) -> Frame:
+        """Adds a child frame such that a reference pose, expressed in the new frame, matches the desired isometry.
+
+        Args:
+            name: The name of the new child frame.
+            desired_position: The desired position of the reference pose in the new frame.
+            desired_orientation: The desired orientation of the reference pose in the new frame.
+            reference_pose: The reference pose for calibration.
+
+        Returns:
+            The newly created child frame.
+
+        Raises:
+            ValueError: If a child with the same name already exists.
+        """
+        if isinstance(desired_orientation, RPY):
+            desired_orientation = desired_orientation.to_quaternion()
+
+        binding_frame = self._core_frame.calibrate_child(
+            name,
+            desired_position._binding_structure,
+            desired_orientation._binding_structure,
+            reference_pose._binding_structure,
+        )
+        return Frame._from_rust(binding_frame)
+
     def add_pose(self, position: Position, orientation: RPY | Quaternion) -> Pose:
         """Adds a pose to the current frame.
 
@@ -186,6 +214,10 @@ class Pose:
         """
         binding_pose = self._core_pose.in_frame(target_frame._binding_structure)
         return Pose._from_rust(binding_pose)
+
+    @property
+    def _binding_structure(self) -> Any:
+        return self._core_pose
 
     @classmethod
     def _from_rust(cls, rust_pose: _core.Pose) -> Pose:

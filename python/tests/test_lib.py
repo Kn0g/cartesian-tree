@@ -13,6 +13,7 @@ def test_create_root_frame() -> None:
     assert frame.parent() is None
     assert frame.depth == 0
 
+
 def test_tree_structure() -> None:
     frame = Frame("root")
     pos = Position(1.0, 2.0, 3.0)
@@ -98,6 +99,7 @@ def test_add_pose_and_update() -> None:
     frame_of_pose.add_child("child_of_pose_frame", pos, quat)
     assert len(frame_of_pose.children()) == 1
 
+
 def test_pose_in_frame() -> None:
     base = Frame("base")
     frame_1 = base.add_child("frame1", Position(1, 1, 1), Quaternion(0, 0, 0, 1))
@@ -110,3 +112,16 @@ def test_pose_in_frame() -> None:
 
     assert pos.to_tuple() == pytest.approx((1.0, -3.0, 1.0), abs=1e-5)
     assert quat.to_rpy().to_tuple() == pytest.approx((0.0, 0.0, -radians(90)), abs=1e-5)
+
+
+def test_calibrate_frame() -> None:
+    base = Frame("base")
+    reference_frame = base.add_child("reference", Position(1, 1, 1), Quaternion(0, 0, 0, 1))
+    reference_pose = reference_frame.add_pose(Position(1, 1, 1), Quaternion(0, 0, 0, 1))
+
+    calibrated_frame = base.calibrate_child("calibrated", Position(0, 0, 0), RPY(0, 0, 0), reference_pose)
+
+    pos, quat = calibrated_frame.transformation_to_parent()
+
+    assert pos.to_tuple() == pytest.approx((2.0, 2.0, 2.0), abs=1e-5)
+    assert quat.to_tuple() == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-5)
