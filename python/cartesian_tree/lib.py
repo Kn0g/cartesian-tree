@@ -126,6 +126,28 @@ class Frame:
             orientation = orientation.to_quaternion()
         self._core_frame.update_transformation(position._binding_structure, orientation._binding_structure)
 
+    def to_json(self) -> str:
+        """Serializes the frame tree to a JSON string.
+
+        Returns:
+            The JSON representation of the tree.
+
+        Raises:
+            ValueError: On serialization failure.
+        """
+        return self._core_frame.to_json()
+
+    def apply_config(self, config_json: str) -> None:
+        """Applies a JSON config to update matching transforms in the tree.
+
+        Args:
+            config_json: The JSON string to apply.
+
+        Raises:
+            ValueError: On deserialization or mismatch errors.
+        """
+        self._core_frame.apply_config(config_json)
+
     def parent(self) -> Frame | None:
         """Returns the parent of the frame.
 
