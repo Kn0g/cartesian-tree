@@ -125,3 +125,23 @@ def test_calibrate_frame() -> None:
 
     assert pos.to_tuple() == pytest.approx((2.0, 2.0, 2.0), abs=1e-5)
     assert quat.to_tuple() == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-5)
+
+
+def test_serialization() -> None:
+    root = Frame("root")
+    child1 = root.add_child("child1", Position(1, 0, 0), Quaternion(0, 0, 0, 1))
+    child2 = child1.add_child("child2", Position(0, 1, 0), RPY(0, 0, radians(90)))
+    child2.add_pose(Position(0, 0, 1), Quaternion(0, 0, 0, 1))
+
+    json_str = root.to_json()
+
+    default_root = Frame("root")
+    default_child1 = default_root.add_child("child1", Position(2, 0, 0), Quaternion(0, 0, 0, 1))
+    default_child2 = default_child1.add_child("child2", Position(0, 2, 0), RPY(0, 0, radians(90)))
+
+    default_root.apply_config(json_str)
+
+    position, _ = default_child1.transformation_to_parent()
+    assert position.to_tuple() == pytest.approx((1.0, 0.0, 0.0), abs=1e-5)  # Updated back to '1'
+    position, _ = default_child2.transformation_to_parent()
+    assert position.to_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)  # Updated back to '1'

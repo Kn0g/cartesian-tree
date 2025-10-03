@@ -93,6 +93,16 @@ impl PyFrame {
         Ok(())
     }
 
+    fn to_json(&self) -> PyResult<String> {
+        Ok(self.rust_frame.to_json()?)
+    }
+
+    #[pyo3(signature = (json))]
+    fn apply_config(&self, json: String) -> PyResult<()> {
+        self.rust_frame.apply_config(&json)?;
+        Ok(())
+    }
+
     #[getter]
     fn depth(&self) -> usize {
         self.rust_frame.depth()

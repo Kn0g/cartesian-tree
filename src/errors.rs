@@ -14,4 +14,8 @@ pub enum CartesianTreeError {
     IsNoAncestor(String, String),
     #[error("Internal error: Weak pointer upgrade failed")]
     WeakUpgradeFailed(),
+    #[error("Serialization/Deserialization error: {0}")]
+    SerdeError(#[from] serde_json::Error),
+    #[error("Tree structure mismatch during config apply: {0}")]
+    Mismatch(String),
 }
