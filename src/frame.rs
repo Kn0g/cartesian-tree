@@ -4,9 +4,13 @@ use crate::orientation::IntoOrientation;
 use crate::tree::Walking;
 use crate::tree::{HasChildren, HasParent, NodeEquality};
 
+use nalgebra::UnitQuaternion;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
+
+use serde::{Deserialize, Serialize};
+use serde_json;
 
 /// Represents a coordinate frame in a Cartesian tree structure.
 ///
@@ -29,6 +33,14 @@ pub(crate) struct FrameData {
     transform_to_parent: Isometry3<f64>,
     /// Child frames directly connected to this frame.
     children: Vec<Frame>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SerialFrame {
+    name: String,
+    position: Vector3<f64>,
+    orientation: UnitQuaternion<f64>,
+    children: Vec<SerialFrame>,
 }
 
 impl Frame {
@@ -309,6 +321,82 @@ impl Frame {
     {
         Pose::new(self.downgrade(), position, orientation)
     }
+
+    /// Serializes the frame tree to a JSON string.
+    ///
+    /// This recursively serializes the hierarchy starting from this frame (ideally the root).
+    /// Transforms for root frames are set to identity.
+    ///
+    /// # Returns
+    /// - `Ok(String)` the pretty-printed JSON.
+    /// - `Err(CartesianTreeError)` on serialization failure.
+    pub fn to_json(&self) -> Result<String, CartesianTreeError> {
+        let serial = self.to_serial();
+        Ok(serde_json::to_string_pretty(&serial)?)
+    }
+
+    /// Helper function to convert the frame and its children recursively into a serializable structure.
+    ///
+    /// This is used internally for JSON serialization.
+    fn to_serial(&self) -> SerialFrame {
+        let (position, orientation) = if self.parent().is_some() {
+            let iso = self.transform_to_parent().unwrap_or(Isometry3::identity());
+            (iso.translation.vector, iso.rotation)
+        } else {
+            (Vector3::zeros(), UnitQuaternion::identity())
+        };
+
+        SerialFrame {
+            name: self.name(),
+            position,
+            orientation,
+            children: self.children().into_iter().map(|c| c.to_serial()).collect(),
+        }
+    }
+
+    /// Applies a JSON config to this frame tree by updating matching transforms.
+    ///
+    /// Deserializes the JSON to a temporary structure, then recursively updates transforms
+    /// where names match (partial apply; ignores unmatched nodes in config).
+    /// Skips updating root frames (identity assumed) - assumes this frame is the root.
+    ///
+    /// # Arguments
+    /// - `json`: The JSON string to apply.
+    ///
+    /// # Returns
+    /// - `Ok(())` if applied successfully (even if partial).
+    /// - `Err(CartesianTreeError)` on deserialization or mismatch (e.g., root names differ).
+    pub fn apply_config(&self, json: &str) -> Result<(), CartesianTreeError> {
+        let serial: SerialFrame = serde_json::from_str(json)?;
+        self.apply_serial(&serial)
+    }
+
+    fn apply_serial(&self, serial: &SerialFrame) -> Result<(), CartesianTreeError> {
+        if self.name() != serial.name {
+            return Err(CartesianTreeError::Mismatch(format!(
+                "Frame names do not match: {} vs {}",
+                self.name(),
+                serial.name
+            )));
+        }
+
+        // only update if frame has parent
+        if self.parent().is_some() {
+            self.update_transform(serial.position, serial.orientation)?;
+        }
+
+        for potential_child in &serial.children {
+            if let Some(child) = self
+                .children()
+                .into_iter()
+                .find(|c| c.name() == potential_child.name)
+            {
+                child.apply_serial(potential_child)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl HasParent for Frame {
@@ -563,5 +651,96 @@ mod tests {
         assert!(
             (calibrated_transformation.rotation.angle() - std::f64::consts::FRAC_PI_2).abs() < 1e-6
         );
+    }
+
+    #[test]
+    fn test_to_json_and_apply_config() {
+        let root = Frame::new_origin("root");
+        let _ = root
+            .add_child(
+                "child",
+                Vector3::new(1.0, 2.0, 3.0),
+                UnitQuaternion::from_euler_angles(0.1, 0.2, 0.3),
+            )
+            .unwrap();
+
+        let json = root.to_json().unwrap();
+        // roughly verify JSON structure
+        assert!(json.contains(r#""name": "root""#));
+        assert!(json.contains(r#""name": "child""#));
+
+        // Create a default tree with different transforms
+        let default_root = Frame::new_origin("root");
+        default_root
+            .add_child(
+                "child",
+                Vector3::new(0.0, 0.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+
+        // Apply config
+        default_root.apply_config(&json).unwrap();
+
+        // Verify child transform updated
+        let updated_child = default_root
+            .children()
+            .into_iter()
+            .find(|c| c.name() == "child")
+            .unwrap();
+        let iso = updated_child.transform_to_parent().unwrap();
+        assert_eq!(iso.translation.vector, Vector3::new(1.0, 2.0, 3.0));
+        let (r, p, y) = iso.rotation.euler_angles();
+        assert!((r - 0.1).abs() < 1e-6);
+        assert!((p - 0.2).abs() < 1e-6);
+        assert!((y - 0.3).abs() < 1e-6);
+
+        // Test partial: If config has extra, ignore it
+        let partial_json = r#"
+        {
+            "name": "root",
+            "position": [0.0, 0.0, 0.0],
+            "orientation": [0.0, 0.0, 0.0, 1.0],
+            "children": [
+                {
+                    "name": "child",
+                    "position": [4.0, 5.0, 6.0],
+                    "orientation": [0.0, 0.0, 0.0, 1.0],
+                    "children": []
+                },
+                {
+                    "name": "extra",
+                    "position": [0.0, 0.0, 0.0],
+                    "orientation": [0.0, 0.0, 0.0, 1.0],
+                    "children": []
+                }
+            ]
+        }
+        "#;
+        default_root.apply_config(partial_json).unwrap();
+        let updated_child = default_root
+            .children()
+            .into_iter()
+            .find(|c| c.name() == "child")
+            .unwrap();
+        assert_eq!(
+            updated_child
+                .transform_to_parent()
+                .unwrap()
+                .translation
+                .vector,
+            Vector3::new(4.0, 5.0, 6.0)
+        );
+
+        // Test mismatch
+        let mismatch_json = r#"
+        {
+            "name": "wrong_root",
+            "position": [0.0, 0.0, 0.0],
+            "orientation": [0.0, 0.0, 0.0, 1.0],
+            "children": []
+        }
+        "#;
+        assert!(default_root.apply_config(mismatch_json).is_err());
     }
 }
