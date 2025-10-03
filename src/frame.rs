@@ -1,11 +1,16 @@
 use crate::CartesianTreeError;
 use crate::Pose;
 use crate::orientation::IntoOrientation;
+use crate::tree::Walking;
 use crate::tree::{HasChildren, HasParent, NodeEquality};
 
+use nalgebra::UnitQuaternion;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
+
+use serde::{Deserialize, Serialize};
+use serde_json;
 
 /// Represents a coordinate frame in a Cartesian tree structure.
 ///
@@ -28,6 +33,14 @@ pub(crate) struct FrameData {
     transform_to_parent: Isometry3<f64>,
     /// Child frames directly connected to this frame.
     children: Vec<Frame>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SerialFrame {
+    name: String,
+    position: Vector3<f64>,
+    orientation: UnitQuaternion<f64>,
+    children: Vec<SerialFrame>,
 }
 
 impl Frame {
@@ -217,6 +230,74 @@ impl Frame {
         Ok(child)
     }
 
+    /// Adds a new child frame calibrated such that a reference pose, when expressed in the new frame,
+    /// matches the desired position and orientation.
+    ///
+    /// # Arguments
+    /// - `name`: The name of the new child frame.
+    /// - `desired_position`: The desired position of the reference pose in the new frame.
+    /// - `desired_orientation`: The desired orientation of the reference pose in the new frame.
+    /// - `reference_pose`: The existing pose (in some frame A) used as the calibration reference.
+    ///
+    /// # Returns
+    /// - `Ok(Frame)` the new child frame if successful.
+    /// - `Err(CartesianTreeError)` if the reference frame is invalid, no common ancestor exists,
+    ///   or a child name conflict occurs.
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let reference_pose = root.add_pose(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity());
+    /// let calibrated_child = root.calibrate_child(
+    ///     "calibrated",
+    ///     Vector3::zeros(),
+    ///     UnitQuaternion::identity(),
+    ///     &reference_pose,
+    /// ).unwrap();
+    /// ```
+    pub fn calibrate_child<O>(
+        &self,
+        name: impl Into<String>,
+        desired_position: Vector3<f64>,
+        desired_orientation: O,
+        reference_pose: &Pose,
+    ) -> Result<Frame, CartesianTreeError>
+    where
+        O: IntoOrientation,
+    {
+        let reference_frame = reference_pose.frame().ok_or_else(|| {
+            CartesianTreeError::FrameDropped("Reference pose frame has been dropped".to_string())
+        })?;
+
+        let ancestor = self.lca_with(&reference_frame).ok_or_else(|| {
+            CartesianTreeError::NoCommonAncestor(self.name(), reference_frame.name())
+        })?;
+
+        let t_reference_to_ancestor = reference_frame.walk_up_and_transform(&ancestor)?;
+        let t_pose_to_reference = reference_pose.transformation();
+        let t_pose_to_ancestor = t_reference_to_ancestor * t_pose_to_reference;
+
+        let t_parent_to_ancestor = self.walk_up_and_transform(&ancestor)?;
+        let t_ancestor_to_parent = t_parent_to_ancestor.inverse();
+
+        let desired_pose = Isometry3::from_parts(
+            Translation3::from(desired_position),
+            desired_orientation.into_orientation(),
+        );
+
+        let t_calibrated_to_parent =
+            t_pose_to_ancestor * desired_pose.inverse() * t_ancestor_to_parent;
+
+        self.add_child(
+            name,
+            t_calibrated_to_parent.translation.vector,
+            t_calibrated_to_parent.rotation,
+        )
+    }
+
     /// Adds a pose to the current frame.
     ///
     /// # Arguments
@@ -239,6 +320,82 @@ impl Frame {
         O: IntoOrientation,
     {
         Pose::new(self.downgrade(), position, orientation)
+    }
+
+    /// Serializes the frame tree to a JSON string.
+    ///
+    /// This recursively serializes the hierarchy starting from this frame (ideally the root).
+    /// Transforms for root frames are set to identity.
+    ///
+    /// # Returns
+    /// - `Ok(String)` the pretty-printed JSON.
+    /// - `Err(CartesianTreeError)` on serialization failure.
+    pub fn to_json(&self) -> Result<String, CartesianTreeError> {
+        let serial = self.to_serial();
+        Ok(serde_json::to_string_pretty(&serial)?)
+    }
+
+    /// Helper function to convert the frame and its children recursively into a serializable structure.
+    ///
+    /// This is used internally for JSON serialization.
+    fn to_serial(&self) -> SerialFrame {
+        let (position, orientation) = if self.parent().is_some() {
+            let iso = self.transform_to_parent().unwrap_or(Isometry3::identity());
+            (iso.translation.vector, iso.rotation)
+        } else {
+            (Vector3::zeros(), UnitQuaternion::identity())
+        };
+
+        SerialFrame {
+            name: self.name(),
+            position,
+            orientation,
+            children: self.children().into_iter().map(|c| c.to_serial()).collect(),
+        }
+    }
+
+    /// Applies a JSON config to this frame tree by updating matching transforms.
+    ///
+    /// Deserializes the JSON to a temporary structure, then recursively updates transforms
+    /// where names match (partial apply; ignores unmatched nodes in config).
+    /// Skips updating root frames (identity assumed) - assumes this frame is the root.
+    ///
+    /// # Arguments
+    /// - `json`: The JSON string to apply.
+    ///
+    /// # Returns
+    /// - `Ok(())` if applied successfully (even if partial).
+    /// - `Err(CartesianTreeError)` on deserialization or mismatch (e.g., root names differ).
+    pub fn apply_config(&self, json: &str) -> Result<(), CartesianTreeError> {
+        let serial: SerialFrame = serde_json::from_str(json)?;
+        self.apply_serial(&serial)
+    }
+
+    fn apply_serial(&self, serial: &SerialFrame) -> Result<(), CartesianTreeError> {
+        if self.name() != serial.name {
+            return Err(CartesianTreeError::Mismatch(format!(
+                "Frame names do not match: {} vs {}",
+                self.name(),
+                serial.name
+            )));
+        }
+
+        // only update if frame has parent
+        if self.parent().is_some() {
+            self.update_transform(serial.position, serial.orientation)?;
+        }
+
+        for potential_child in &serial.children {
+            if let Some(child) = self
+                .children()
+                .into_iter()
+                .find(|c| c.name() == potential_child.name)
+            {
+                child.apply_serial(potential_child)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -403,7 +560,7 @@ mod tests {
         let frame = Frame::new_origin("dummy");
         let pose = frame.add_pose(Vector3::new(1.0, 2.0, 3.0), UnitQuaternion::identity());
 
-        assert_eq!(pose.frame_name().as_deref(), Some("dummy"));
+        assert_eq!(pose.frame().unwrap().name(), "dummy");
     }
 
     #[test]
@@ -458,5 +615,133 @@ mod tests {
 
         // Total offset should be: f2 (0,2,0) + pose (1,1,0) + f1 (1,0,0)
         assert!((pos - Vector3::new(2.0, 3.0, 0.0)).norm() < 1e-6);
+    }
+
+    #[test]
+    fn test_calibrate_child() {
+        let root = Frame::new_origin("root");
+
+        let reference_pose = root.add_pose(
+            Vector3::new(1.0, 2.0, 3.0),
+            UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+        );
+
+        // Calibrate a child where the reference pose should appear at (0,0,0) with identity orientation.
+        let calibrated_frame = root
+            .calibrate_child(
+                "calibrated",
+                Vector3::zeros(),
+                UnitQuaternion::identity(),
+                &reference_pose,
+            )
+            .unwrap();
+
+        let pose_in_calibrated = reference_pose.in_frame(&calibrated_frame).unwrap();
+        let transformation = pose_in_calibrated.transformation();
+
+        assert!((transformation.translation.vector - Vector3::zeros()).norm() < 1e-6);
+        assert!((transformation.rotation.angle() - 0.0).abs() < 1e-6);
+
+        // Verify the child's transform matches the reference pose's original transform.
+        let calibrated_transformation = calibrated_frame.transform_to_parent().unwrap();
+        assert!(
+            (calibrated_transformation.translation.vector - Vector3::new(1.0, 2.0, 3.0)).norm()
+                < 1e-6
+        );
+        assert!(
+            (calibrated_transformation.rotation.angle() - std::f64::consts::FRAC_PI_2).abs() < 1e-6
+        );
+    }
+
+    #[test]
+    fn test_to_json_and_apply_config() {
+        let root = Frame::new_origin("root");
+        let _ = root
+            .add_child(
+                "child",
+                Vector3::new(1.0, 2.0, 3.0),
+                UnitQuaternion::from_euler_angles(0.1, 0.2, 0.3),
+            )
+            .unwrap();
+
+        let json = root.to_json().unwrap();
+        // roughly verify JSON structure
+        assert!(json.contains(r#""name": "root""#));
+        assert!(json.contains(r#""name": "child""#));
+
+        // Create a default tree with different transforms
+        let default_root = Frame::new_origin("root");
+        default_root
+            .add_child(
+                "child",
+                Vector3::new(0.0, 0.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+
+        // Apply config
+        default_root.apply_config(&json).unwrap();
+
+        // Verify child transform updated
+        let updated_child = default_root
+            .children()
+            .into_iter()
+            .find(|c| c.name() == "child")
+            .unwrap();
+        let iso = updated_child.transform_to_parent().unwrap();
+        assert_eq!(iso.translation.vector, Vector3::new(1.0, 2.0, 3.0));
+        let (r, p, y) = iso.rotation.euler_angles();
+        assert!((r - 0.1).abs() < 1e-6);
+        assert!((p - 0.2).abs() < 1e-6);
+        assert!((y - 0.3).abs() < 1e-6);
+
+        // Test partial: If config has extra, ignored
+        let partial_json = r#"
+        {
+            "name": "root",
+            "position": [0.0, 0.0, 0.0],
+            "orientation": [0.0, 0.0, 0.0, 1.0],
+            "children": [
+                {
+                    "name": "child",
+                    "position": [4.0, 5.0, 6.0],
+                    "orientation": [0.0, 0.0, 0.0, 1.0],
+                    "children": []
+                },
+                {
+                    "name": "extra",
+                    "position": [0.0, 0.0, 0.0],
+                    "orientation": [0.0, 0.0, 0.0, 1.0],
+                    "children": []
+                }
+            ]
+        }
+        "#;
+        default_root.apply_config(partial_json).unwrap();
+        let updated_child = default_root
+            .children()
+            .into_iter()
+            .find(|c| c.name() == "child")
+            .unwrap();
+        assert_eq!(
+            updated_child
+                .transform_to_parent()
+                .unwrap()
+                .translation
+                .vector,
+            Vector3::new(4.0, 5.0, 6.0)
+        );
+        // No "extra" added
+
+        // Test mismatch
+        let mismatch_json = r#"
+        {
+            "name": "wrong_root",
+            "position": [0.0, 0.0, 0.0],
+            "orientation": [0.0, 0.0, 0.0, 1.0],
+            "children": []
+        }
+        "#;
+        assert!(default_root.apply_config(mismatch_json).is_err());
     }
 }

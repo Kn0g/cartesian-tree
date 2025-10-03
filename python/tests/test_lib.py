@@ -14,6 +14,19 @@ def test_create_root_frame() -> None:
     assert frame.depth == 0
 
 
+def test_tree_structure() -> None:
+    frame = Frame("root")
+    pos = Position(1.0, 2.0, 3.0)
+    quat = Quaternion(0.0, 0.0, 0.0, 1.0)
+    child = frame.add_child("child", pos, quat)
+    grandchild = child.add_child("grandchild", pos, quat)
+    assert grandchild.depth == 2  # noqa: PLR2004
+    parent = grandchild.parent()
+    assert parent is not None
+    assert parent.name == "child"
+    assert grandchild.root().name == "root"
+
+
 def test_add_child_frame_with_quaternion() -> None:
     root = Frame("base")
     pos = Position(1.0, 2.0, 3.0)
@@ -80,6 +93,12 @@ def test_add_pose_and_update() -> None:
     up_pos, _ = pose.transformation()
     assert up_pos.to_tuple() == pytest.approx((4.0, 5.0, 6.0), abs=1e-5)
 
+    # Access frame
+    frame_of_pose = pose.frame()
+    assert frame_of_pose.name == "base"
+    frame_of_pose.add_child("child_of_pose_frame", pos, quat)
+    assert len(frame_of_pose.children()) == 1
+
 
 def test_pose_in_frame() -> None:
     base = Frame("base")
@@ -93,3 +112,36 @@ def test_pose_in_frame() -> None:
 
     assert pos.to_tuple() == pytest.approx((1.0, -3.0, 1.0), abs=1e-5)
     assert quat.to_rpy().to_tuple() == pytest.approx((0.0, 0.0, -radians(90)), abs=1e-5)
+
+
+def test_calibrate_frame() -> None:
+    base = Frame("base")
+    reference_frame = base.add_child("reference", Position(1, 1, 1), Quaternion(0, 0, 0, 1))
+    reference_pose = reference_frame.add_pose(Position(1, 1, 1), Quaternion(0, 0, 0, 1))
+
+    calibrated_frame = base.calibrate_child("calibrated", Position(0, 0, 0), RPY(0, 0, 0), reference_pose)
+
+    pos, quat = calibrated_frame.transformation_to_parent()
+
+    assert pos.to_tuple() == pytest.approx((2.0, 2.0, 2.0), abs=1e-5)
+    assert quat.to_tuple() == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-5)
+
+
+def test_serialization() -> None:
+    root = Frame("root")
+    child1 = root.add_child("child1", Position(1, 0, 0), Quaternion(0, 0, 0, 1))
+    child2 = child1.add_child("child2", Position(0, 1, 0), RPY(0, 0, radians(90)))
+    child2.add_pose(Position(0, 0, 1), Quaternion(0, 0, 0, 1))
+
+    json_str = root.to_json()
+
+    default_root = Frame("root")
+    default_child1 = default_root.add_child("child1", Position(2, 0, 0), Quaternion(0, 0, 0, 1))
+    default_child2 = default_child1.add_child("child2", Position(0, 2, 0), RPY(0, 0, radians(90)))
+
+    default_root.apply_config(json_str)
+
+    position, _ = default_child1.transformation_to_parent()
+    assert position.to_tuple() == pytest.approx((1.0, 0.0, 0.0), abs=1e-5)  # Updated back to '1'
+    position, _ = default_child2.transformation_to_parent()
+    assert position.to_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)  # Updated back to '1'

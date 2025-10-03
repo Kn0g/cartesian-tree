@@ -20,3 +20,6 @@ target/
 venv
 **/*/__pycache__
 **/*/*cartesian_tree.cpython-*.so
+
+# VS Code
+.vscode/

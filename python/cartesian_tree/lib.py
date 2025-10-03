@@ -53,6 +53,34 @@ class Frame:
         binding_frame = self._core_frame.add_child(name, position._binding_structure, orientation._binding_structure)
         return Frame._from_rust(binding_frame)
 
+    def calibrate_child(
+        self, name: str, desired_position: Position, desired_orientation: RPY | Quaternion, reference_pose: Pose
+    ) -> Frame:
+        """Adds a child frame such that a reference pose, expressed in the new frame, matches the desired isometry.
+
+        Args:
+            name: The name of the new child frame.
+            desired_position: The desired translational offset from the parent.
+            desired_orientation: The orientational offset from the parent.
+            reference_pose: The reference pose for calibration.
+
+        Returns:
+            The newly created child frame.
+
+        Raises:
+            ValueError: If a child with the same name already exists.
+        """
+        if isinstance(desired_orientation, RPY):
+            desired_orientation = desired_orientation.to_quaternion()
+
+        binding_frame = self._core_frame.calibrate_child(
+            name,
+            desired_position._binding_structure,
+            desired_orientation._binding_structure,
+            reference_pose._binding_structure,
+        )
+        return Frame._from_rust(binding_frame)
+
     def add_pose(self, position: Position, orientation: RPY | Quaternion) -> Pose:
         """Adds a pose to the current frame.
 
@@ -98,6 +126,28 @@ class Frame:
             orientation = orientation.to_quaternion()
         self._core_frame.update_transformation(position._binding_structure, orientation._binding_structure)
 
+    def to_json(self) -> str:
+        """Serializes the frame tree to a JSON string.
+
+        Returns:
+            The JSON representation of the tree.
+
+        Raises:
+            ValueError: On serialization failure.
+        """
+        return self._core_frame.to_json()
+
+    def apply_config(self, config_json: str) -> None:
+        """Applies a JSON config to update matching transforms in the tree.
+
+        Args:
+            config_json: The JSON string to apply.
+
+        Raises:
+            ValueError: On deserialization or mismatch errors.
+        """
+        self._core_frame.apply_config(config_json)
+
     def parent(self) -> Frame | None:
         """Returns the parent of the frame.
 
@@ -108,6 +158,15 @@ class Frame:
         if binding_parent is None:
             return None
         return Frame._from_rust(binding_parent)
+
+    def root(self) -> Frame:
+        """Returns the root frame of the tree.
+
+        Returns:
+            The root frame of the tree.
+        """
+        binding_root = self._core_frame.root()
+        return Frame._from_rust(binding_root)
 
     def children(self) -> list[Frame]:
         """Returns the children of the frame.
@@ -139,10 +198,9 @@ class Pose:
 
     _core_pose: _core.Pose
 
-    @property
-    def frame_name(self) -> str:
-        """Returns the name of the frame of the pose."""
-        return self._core_pose.frame_name
+    def frame(self) -> Frame:
+        """Returns the frame of the pose."""
+        return Frame._from_rust(self._core_pose.frame())
 
     def transformation(self) -> tuple[Position, Quaternion]:
         """Returns the transformation of the pose to its parent frame.
@@ -178,6 +236,10 @@ class Pose:
         """
         binding_pose = self._core_pose.in_frame(target_frame._binding_structure)
         return Pose._from_rust(binding_pose)
+
+    @property
+    def _binding_structure(self) -> Any:
+        return self._core_pose
 
     @classmethod
     def _from_rust(cls, rust_pose: _core.Pose) -> Pose:

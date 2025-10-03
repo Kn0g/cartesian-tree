@@ -26,7 +26,7 @@ impl PyFrame {
     }
 
     #[getter]
-    fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         self.rust_frame.name()
     }
 
@@ -42,6 +42,25 @@ impl PyFrame {
             .add_child(name, position.position, quaternion.quat)?;
         Ok(PyFrame {
             rust_frame: child_frame,
+        })
+    }
+
+    #[pyo3(signature = (name, desired_position, desired_quaternion, reference_pose))]
+    fn calibrate_child(
+        &self,
+        name: String,
+        desired_position: PyPosition,
+        desired_quaternion: PyQuaternion,
+        reference_pose: &PyPose,
+    ) -> PyResult<PyFrame> {
+        let new_rust_frame = self.rust_frame.calibrate_child(
+            name,
+            desired_position.position,
+            desired_quaternion.quat,
+            &reference_pose.rust_pose,
+        )?;
+        Ok(PyFrame {
+            rust_frame: new_rust_frame,
         })
     }
 
@@ -74,9 +93,25 @@ impl PyFrame {
         Ok(())
     }
 
+    fn to_json(&self) -> PyResult<String> {
+        Ok(self.rust_frame.to_json()?)
+    }
+
+    #[pyo3(signature = (json))]
+    fn apply_config(&self, json: String) -> PyResult<()> {
+        self.rust_frame.apply_config(&json)?;
+        Ok(())
+    }
+
     #[getter]
     fn depth(&self) -> usize {
         self.rust_frame.depth()
+    }
+
+    fn root(&self) -> PyFrame {
+        PyFrame {
+            rust_frame: self.rust_frame.root(),
+        }
     }
 
     fn parent(&self) -> Option<PyFrame> {
