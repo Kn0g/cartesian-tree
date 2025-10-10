@@ -9,7 +9,7 @@ maintainers = [{name = "Kn0g"}]
 description = "Build hierarchical Cartesian coordinate systems to easily transform poses."
 readme = "README.md"
 keywords = ["Cartesian", "coordinate systems", "transform", "poses"]
-license = "MIT"
+license = { file = "license-mit" }
 classifiers = [
     "Programming Language :: Python"
 ]
