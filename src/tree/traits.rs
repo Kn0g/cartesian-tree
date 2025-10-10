@@ -59,6 +59,7 @@ pub trait Walking: HasParent<Node = Self> + NodeEquality + Clone {
     /// # Returns
     ///
     /// The root Node.
+    #[must_use]
     fn root(&self) -> Self {
         self.walk_up(self.depth()).unwrap_or_else(|| self.clone())
     }

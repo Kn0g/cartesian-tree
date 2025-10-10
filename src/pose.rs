@@ -24,11 +24,11 @@ impl Pose {
         frame: Weak<RefCell<FrameData>>,
         position: Vector3<f64>,
         orientation: O,
-    ) -> Pose
+    ) -> Self
     where
         O: IntoOrientation,
     {
-        Pose {
+        Self {
             parent: frame,
             transform_to_parent: Isometry3::from_parts(
                 Translation3::from(position),
@@ -52,6 +52,7 @@ impl Pose {
     /// let pose = frame.add_pose(Vector3::new(0.0, 0.0, 0.0), UnitQuaternion::identity());
     /// assert_eq!(pose.frame().unwrap().name(), "base");
     /// ```
+    #[must_use]
     pub fn frame(&self) -> Option<Frame> {
         self.parent.upgrade().map(|data| Frame { data })
     }
@@ -60,7 +61,8 @@ impl Pose {
     ///
     /// # Returns
     /// The transformation of the pose in its parent frame.
-    pub fn transformation(&self) -> Isometry3<f64> {
+    #[must_use]
+    pub const fn transformation(&self) -> Isometry3<f64> {
         self.transform_to_parent
     }
 
@@ -93,8 +95,12 @@ impl Pose {
     /// * `target` - The frame to express this pose in.
     ///
     /// # Returns
-    /// - `Ok(Pose)` a new `Pose`, expressed in the `target` frame.
-    /// - `Err(String)` if the frame hierarchy cannot be resolved (due to dropped frames or no common ancestor).
+    /// A new `Pose`, expressed in the `target` frame.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame hierarchy cannot be resolved (e.g., due to dropped frames).
+    /// - There is no common ancestor between `self` and `target`.
     ///
     /// # Example
     /// ```
@@ -106,7 +112,7 @@ impl Pose {
     /// let new_frame = root.add_child("child", Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity()).unwrap();
     /// let pose_in_new_frame = pose.in_frame(&new_frame);
     /// ```
-    pub fn in_frame(&self, target: &Frame) -> Result<Pose, CartesianTreeError> {
+    pub fn in_frame(&self, target: &Frame) -> Result<Self, CartesianTreeError> {
         let source_data = self
             .parent
             .upgrade()
@@ -114,10 +120,7 @@ impl Pose {
         let source = Frame { data: source_data };
         let ancestor = source
             .lca_with(target)
-            .ok_or(CartesianTreeError::NoCommonAncestor(
-                source.name(),
-                target.name(),
-            ))?;
+            .ok_or_else(|| CartesianTreeError::NoCommonAncestor(source.name(), target.name()))?;
 
         // Transformation from source frame up to ancestor
         let tf_up = source.walk_up_and_transform(&ancestor)? * self.transform_to_parent;
@@ -125,7 +128,7 @@ impl Pose {
         // Transformation from target frame up to ancestor (to be inverted)
         let tf_down = target.walk_up_and_transform(&ancestor)?;
 
-        Ok(Pose {
+        Ok(Self {
             parent: target.downgrade(),
             transform_to_parent: tf_down.inverse() * tf_up,
         })
