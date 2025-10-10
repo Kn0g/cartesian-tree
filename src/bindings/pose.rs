@@ -22,7 +22,7 @@ impl PyPose {
             .map(|frame| PyFrame { rust_frame: frame })
     }
 
-    fn transformation(&self) -> (PyPosition, PyQuaternion) {
+    const fn transformation(&self) -> (PyPosition, PyQuaternion) {
         let isometry = self.rust_pose.transformation();
         (
             PyPosition {
@@ -40,9 +40,9 @@ impl PyPose {
     }
 
     #[pyo3(signature = (target_frame))]
-    fn in_frame(&self, target_frame: &PyFrame) -> PyResult<PyPose> {
+    fn in_frame(&self, target_frame: &PyFrame) -> PyResult<Self> {
         let new_rust_pose = self.rust_pose.in_frame(&target_frame.rust_frame)?;
-        Ok(PyPose {
+        Ok(Self {
             rust_pose: new_rust_pose,
         })
     }
@@ -70,8 +70,7 @@ impl PyPose {
         format!(
             "'{}', ({:.2}, {:.2}, {:.2})({:.4}, {:.4}, {:.4}, {:.4}))",
             self.frame()
-                .map(|frame| frame.name())
-                .unwrap_or_else(|| "Unknown".to_string()),
+                .map_or_else(|| "Unknown".to_string(), |frame| frame.name()),
             position.x,
             position.y,
             position.z,

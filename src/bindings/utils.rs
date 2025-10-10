@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use crate::CartesianTreeError;
 
 impl From<CartesianTreeError> for PyErr {
-    fn from(err: CartesianTreeError) -> PyErr {
+    fn from(err: CartesianTreeError) -> Self {
         pyo3::exceptions::PyValueError::new_err(err.to_string())
     }
 }
@@ -18,8 +18,8 @@ pub struct PyRPY {
 #[pymethods]
 impl PyRPY {
     #[new]
-    fn new(roll: f64, pitch: f64, yaw: f64) -> Self {
-        PyRPY {
+    const fn new(roll: f64, pitch: f64, yaw: f64) -> Self {
+        Self {
             rpy: Vector3::new(roll, pitch, yaw),
         }
     }
@@ -80,7 +80,7 @@ pub struct PyQuaternion {
 impl PyQuaternion {
     #[new]
     fn new(x: f64, y: f64, z: f64, w: f64) -> Self {
-        PyQuaternion {
+        Self {
             quat: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
         }
     }
@@ -151,8 +151,8 @@ pub struct PyPosition {
 #[pymethods]
 impl PyPosition {
     #[new]
-    fn new(x: f64, y: f64, z: f64) -> Self {
-        PyPosition {
+    const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self {
             position: Vector3::new(x, y, z),
         }
     }
