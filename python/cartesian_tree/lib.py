@@ -140,11 +140,15 @@ class Frame:
     def apply_config(self, config_json: str) -> None:
         """Applies a JSON config to update matching transforms in the tree.
 
+        Deserializes the JSON to a temporary structure, then recursively updates transforms to the
+        parent frames where names match (partial apply; ignores unmatched frames in config).
+        It is assumed this frame is the root.
+
         Args:
             config_json: The JSON string to apply.
 
         Raises:
-            ValueError: On deserialization or mismatch errors.
+            ValueError: On deserialization or mismatch errors (e.g. if this frame is not the root).
         """
         self._core_frame.apply_config(config_json)
 
