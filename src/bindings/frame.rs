@@ -20,7 +20,7 @@ impl PyFrame {
     #[new]
     #[pyo3(signature = (name))]
     fn new(name: String) -> Self {
-        PyFrame {
+        Self {
             rust_frame: RustFrame::new_origin(name),
         }
     }
@@ -36,11 +36,11 @@ impl PyFrame {
         name: String,
         position: PyPosition,
         quaternion: PyQuaternion,
-    ) -> PyResult<PyFrame> {
+    ) -> PyResult<Self> {
         let child_frame = self
             .rust_frame
             .add_child(name, position.position, quaternion.quat)?;
-        Ok(PyFrame {
+        Ok(Self {
             rust_frame: child_frame,
         })
     }
@@ -52,14 +52,14 @@ impl PyFrame {
         desired_position: PyPosition,
         desired_quaternion: PyQuaternion,
         reference_pose: &PyPose,
-    ) -> PyResult<PyFrame> {
+    ) -> PyResult<Self> {
         let new_rust_frame = self.rust_frame.calibrate_child(
             name,
             desired_position.position,
             desired_quaternion.quat,
             &reference_pose.rust_pose,
         )?;
-        Ok(PyFrame {
+        Ok(Self {
             rust_frame: new_rust_frame,
         })
     }
@@ -98,8 +98,8 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (json))]
-    fn apply_config(&self, json: String) -> PyResult<()> {
-        self.rust_frame.apply_config(&json)?;
+    fn apply_config(&self, json: &str) -> PyResult<()> {
+        self.rust_frame.apply_config(json)?;
         Ok(())
     }
 
@@ -108,23 +108,21 @@ impl PyFrame {
         self.rust_frame.depth()
     }
 
-    fn root(&self) -> PyFrame {
-        PyFrame {
+    fn root(&self) -> Self {
+        Self {
             rust_frame: self.rust_frame.root(),
         }
     }
 
-    fn parent(&self) -> Option<PyFrame> {
-        self.rust_frame
-            .parent()
-            .map(|rf| PyFrame { rust_frame: rf })
+    fn parent(&self) -> Option<Self> {
+        self.rust_frame.parent().map(|rf| Self { rust_frame: rf })
     }
 
-    fn children(&self) -> Vec<PyFrame> {
+    fn children(&self) -> Vec<Self> {
         self.rust_frame
             .children()
             .into_iter()
-            .map(|rf| PyFrame { rust_frame: rf })
+            .map(|rf| Self { rust_frame: rf })
             .collect()
     }
 

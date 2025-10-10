@@ -57,7 +57,7 @@ impl Frame {
     /// let origin = Frame::new_origin("world");
     /// ```
     pub fn new_origin(name: impl Into<String>) -> Self {
-        Frame {
+        Self {
             data: Rc::new(RefCell::new(FrameData {
                 name: name.into(),
                 parent: None,
@@ -81,7 +81,7 @@ impl Frame {
 
     pub(crate) fn walk_up_and_transform(
         &self,
-        target: &Frame,
+        target: &Self,
     ) -> Result<Isometry3<f64>, CartesianTreeError> {
         let mut transform = Isometry3::identity();
         let mut current = self.clone();
@@ -109,6 +109,7 @@ impl Frame {
     }
 
     /// Returns the name of the frame.
+    #[must_use]
     pub fn name(&self) -> String {
         self.borrow().name.clone()
     }
@@ -116,8 +117,11 @@ impl Frame {
     /// Returns the transformation from this frame to its parent frame.
     ///
     /// # Returns
-    /// - `Ok(Isometry3<f64>)` if the frame has a parent.
-    /// - `Err(String)` if the frame has no parent.
+    /// - The isometry from this frame to its parent frame.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has no parent.
     pub fn transform_to_parent(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
         if self.parent().is_none() {
             return Err(CartesianTreeError::RootHasNoParent(self.name()));
@@ -136,7 +140,10 @@ impl Frame {
     ///
     /// # Returns
     /// - `Ok(())` if the transformation was updated successfully.
-    /// - `Err(String)` if the frame has no parent.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has no parent (i.e., the root frame).
     ///
     /// # Example
     /// ```
@@ -178,8 +185,11 @@ impl Frame {
     /// - `orientation`: An orientation convertible into a unit quaternion.
     ///
     /// # Returns
-    /// - `Ok(Rc<Frame>)` the newly added child frame.
-    /// - `Err(String)` if a child with the same name already exists.
+    /// The newly added child frame.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - A child with the same name already exists.
     ///
     /// # Example
     /// ```
@@ -196,7 +206,7 @@ impl Frame {
         name: impl Into<String>,
         position: Vector3<f64>,
         orientation: O,
-    ) -> Result<Frame, CartesianTreeError>
+    ) -> Result<Self, CartesianTreeError>
     where
         O: IntoOrientation,
     {
@@ -217,7 +227,7 @@ impl Frame {
         let quat = orientation.into_orientation();
         let transform = Isometry3::from_parts(Translation3::from(position), quat);
 
-        let child = Frame {
+        let child = Self {
             data: Rc::new(RefCell::new(FrameData {
                 name: child_name,
                 parent: Some(Rc::downgrade(&self.data)),
@@ -240,9 +250,13 @@ impl Frame {
     /// - `reference_pose`: The existing pose (in some frame A) used as the calibration reference.
     ///
     /// # Returns
-    /// - `Ok(Frame)` the new child frame if successful.
-    /// - `Err(CartesianTreeError)` if the reference frame is invalid, no common ancestor exists,
-    ///   or a child name conflict occurs.
+    /// - The new child frame if successful.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The reference frame is invalid.
+    /// - No common ancestor exists.
+    /// - A child with the same name already exists.
     ///
     /// # Example
     /// ```
@@ -264,7 +278,7 @@ impl Frame {
         desired_position: Vector3<f64>,
         desired_orientation: O,
         reference_pose: &Pose,
-    ) -> Result<Frame, CartesianTreeError>
+    ) -> Result<Self, CartesianTreeError>
     where
         O: IntoOrientation,
     {
@@ -328,8 +342,11 @@ impl Frame {
     /// Transforms for root frames are set to identity.
     ///
     /// # Returns
-    /// - `Ok(String)` the pretty-printed JSON.
-    /// - `Err(CartesianTreeError)` on serialization failure.
+    /// The serialized tree as a JSON string.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - On deserialization failure.
     pub fn to_json(&self) -> Result<String, CartesianTreeError> {
         let serial = self.to_serial();
         Ok(serde_json::to_string_pretty(&serial)?)
@@ -340,7 +357,9 @@ impl Frame {
     /// This is used internally for JSON serialization.
     fn to_serial(&self) -> SerialFrame {
         let (position, orientation) = if self.parent().is_some() {
-            let iso = self.transform_to_parent().unwrap_or(Isometry3::identity());
+            let iso = self
+                .transform_to_parent()
+                .unwrap_or_else(|_| Isometry3::identity());
             (iso.translation.vector, iso.rotation)
         } else {
             (Vector3::zeros(), UnitQuaternion::identity())
@@ -357,15 +376,20 @@ impl Frame {
     /// Applies a JSON config to this frame tree by updating matching transforms.
     ///
     /// Deserializes the JSON to a temporary structure, then recursively updates transforms
-    /// where names match (partial apply; ignores unmatched nodes in config).
+    /// where names match (partial apply; ignores unmatched frames in config).
     /// Skips updating root frames (identity assumed) - assumes this frame is the root.
     ///
     /// # Arguments
     /// - `json`: The JSON string to apply.
     ///
     /// # Returns
-    /// - `Ok(())` if applied successfully (even if partial).
-    /// - `Err(CartesianTreeError)` on deserialization or mismatch (e.g., root names differ).
+    /// `Ok(())` if applied successfully (even if partial).
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - On deserialization failure.
+    /// - The frame names do not match at the root.
+    ///
     pub fn apply_config(&self, json: &str) -> Result<(), CartesianTreeError> {
         let serial: SerialFrame = serde_json::from_str(json)?;
         self.apply_serial(&serial)
@@ -400,13 +424,13 @@ impl Frame {
 }
 
 impl HasParent for Frame {
-    type Node = Frame;
+    type Node = Self;
 
     fn parent(&self) -> Option<Self::Node> {
         self.borrow()
             .parent
             .clone()
-            .and_then(|data_weak| data_weak.upgrade().map(|data_rc| Frame { data: data_rc }))
+            .and_then(|data_weak| data_weak.upgrade().map(|data_rc| Self { data: data_rc }))
     }
 }
 
@@ -417,8 +441,8 @@ impl NodeEquality for Frame {
 }
 
 impl HasChildren for Frame {
-    type Node = Frame;
-    fn children(&self) -> Vec<Frame> {
+    type Node = Self;
+    fn children(&self) -> Vec<Self> {
         self.borrow().children.clone()
     }
 }

@@ -12,6 +12,18 @@ include = ["/src"]
 keywords = ["Cartesian", "coordinate-systems", "transform", "poses"]
 categories = ["mathematics", "data-structures"]
 
+[lints.clippy]
+all = "warn"
+style = "warn"
+pedantic = "warn"
+cargo = "warn"
+nursery = "warn"
+missing_panics_doc = "warn"
+missing_errors_doc = "warn"
+missing_safety_doc = "warn"
+empty_line_after_outer_attr = "warn"
+empty_line_after_doc_comments = "warn"
+
 [dependencies]
 nalgebra = { version = "0.33.2", features = ["serde-serialize"] }
 pyo3 = { version = "0.25.0", features = ["extension-module"] , optional = true}
