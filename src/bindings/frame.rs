@@ -4,7 +4,7 @@ use crate::{
     Frame as RustFrame,
     bindings::{
         PyPose,
-        utils::{PyQuaternion, PyVector3},
+        utils::{PyRotation, PyVector3},
     },
     tree::{HasChildren, HasParent, Walking},
 };
@@ -30,33 +30,33 @@ impl PyFrame {
         self.rust_frame.name()
     }
 
-    #[pyo3(signature = (name, position, quaternion))]
+    #[pyo3(signature = (name, position, orientation))]
     fn add_child(
         &self,
         name: String,
         position: PyVector3,
-        quaternion: PyQuaternion,
+        orientation: PyRotation,
     ) -> PyResult<Self> {
-        let child_frame = self
-            .rust_frame
-            .add_child(name, position.inner, quaternion.quat)?;
+        let child_frame =
+            self.rust_frame
+                .add_child(name, position.inner, orientation.rust_rotation)?;
         Ok(Self {
             rust_frame: child_frame,
         })
     }
 
-    #[pyo3(signature = (name, desired_position, desired_quaternion, reference_pose))]
+    #[pyo3(signature = (name, desired_position, desired_orientation, reference_pose))]
     fn calibrate_child(
         &self,
         name: String,
         desired_position: PyVector3,
-        desired_quaternion: PyQuaternion,
+        desired_orientation: PyRotation,
         reference_pose: &PyPose,
     ) -> PyResult<Self> {
         let new_rust_frame = self.rust_frame.calibrate_child(
             name,
             desired_position.inner,
-            desired_quaternion.quat,
+            desired_orientation.rust_rotation,
             &reference_pose.rust_pose,
         )?;
         Ok(Self {
@@ -64,28 +64,30 @@ impl PyFrame {
         })
     }
 
-    #[pyo3(signature = (position, quaternion))]
-    fn add_pose(&self, position: PyVector3, quaternion: PyQuaternion) -> PyPose {
-        let rust_pose = self.rust_frame.add_pose(position.inner, quaternion.quat);
+    #[pyo3(signature = (position, orientation))]
+    fn add_pose(&self, position: PyVector3, orientation: PyRotation) -> PyPose {
+        let rust_pose = self
+            .rust_frame
+            .add_pose(position.inner, orientation.rust_rotation);
         PyPose { rust_pose }
     }
 
-    fn transformation_to_parent(&self) -> PyResult<(PyVector3, PyQuaternion)> {
+    fn transformation_to_parent(&self) -> PyResult<(PyVector3, PyRotation)> {
         let isometry = self.rust_frame.transform_to_parent()?;
         Ok((
             PyVector3 {
                 inner: isometry.translation.vector,
             },
-            PyQuaternion {
-                quat: isometry.rotation,
+            PyRotation {
+                rust_rotation: isometry.rotation.into(),
             },
         ))
     }
 
-    #[pyo3(signature = (position, quaternion))]
-    fn update_transformation(&self, position: PyVector3, quaternion: PyQuaternion) -> PyResult<()> {
+    #[pyo3(signature = (position, orientation))]
+    fn update_transformation(&self, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
         self.rust_frame
-            .update_transform(position.inner, quaternion.quat)?;
+            .update_transform(position.inner, orientation.rust_rotation)?;
         Ok(())
     }
 
@@ -127,6 +129,6 @@ impl PyFrame {
     }
 
     fn __repr__(&self) -> String {
-        self.rust_frame.name()
+        self.__str__()
     }
 }

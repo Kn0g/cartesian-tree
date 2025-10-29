@@ -1,6 +1,6 @@
 use crate::CartesianTreeError;
 use crate::Pose;
-use crate::orientation::IntoOrientation;
+use crate::rotation::Rotation;
 use crate::tree::Walking;
 use crate::tree::{HasChildren, HasParent, NodeEquality};
 
@@ -157,19 +157,18 @@ impl Frame {
     /// child.update_transform(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
     ///     .unwrap();
     /// ```
-    pub fn update_transform<O>(
+    pub fn update_transform(
         &self,
         position: Vector3<f64>,
-        orientation: O,
-    ) -> Result<(), CartesianTreeError>
-    where
-        O: IntoOrientation,
-    {
+        orientation: impl Into<Rotation>,
+    ) -> Result<(), CartesianTreeError> {
         if self.parent().is_none() {
             return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
         }
-        self.borrow_mut().transform_to_parent =
-            Isometry3::from_parts(Translation3::from(position), orientation.into_orientation());
+        self.borrow_mut().transform_to_parent = Isometry3::from_parts(
+            Translation3::from(position),
+            orientation.into().as_quaternion(),
+        );
         Ok(())
     }
 
@@ -201,15 +200,12 @@ impl Frame {
     ///     .add_child("camera", Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity())
     ///     .unwrap();
     /// ```
-    pub fn add_child<O>(
+    pub fn add_child(
         &self,
         name: impl Into<String>,
         position: Vector3<f64>,
-        orientation: O,
-    ) -> Result<Self, CartesianTreeError>
-    where
-        O: IntoOrientation,
-    {
+        orientation: impl Into<Rotation>,
+    ) -> Result<Self, CartesianTreeError> {
         let child_name = name.into();
         {
             let frame = self.borrow();
@@ -224,8 +220,10 @@ impl Frame {
                 ));
             }
         }
-        let quat = orientation.into_orientation();
-        let transform = Isometry3::from_parts(Translation3::from(position), quat);
+        let transform = Isometry3::from_parts(
+            Translation3::from(position),
+            orientation.into().as_quaternion(),
+        );
 
         let child = Self {
             data: Rc::new(RefCell::new(FrameData {
@@ -272,16 +270,13 @@ impl Frame {
     ///     &reference_pose,
     /// ).unwrap();
     /// ```
-    pub fn calibrate_child<O>(
+    pub fn calibrate_child(
         &self,
         name: impl Into<String>,
         desired_position: Vector3<f64>,
-        desired_orientation: O,
+        desired_orientation: impl Into<Rotation>,
         reference_pose: &Pose,
-    ) -> Result<Self, CartesianTreeError>
-    where
-        O: IntoOrientation,
-    {
+    ) -> Result<Self, CartesianTreeError> {
         let reference_frame = reference_pose.frame().ok_or_else(|| {
             CartesianTreeError::FrameDropped("Reference pose frame has been dropped".to_string())
         })?;
@@ -299,7 +294,7 @@ impl Frame {
 
         let desired_pose = Isometry3::from_parts(
             Translation3::from(desired_position),
-            desired_orientation.into_orientation(),
+            desired_orientation.into().as_quaternion(),
         );
 
         let t_calibrated_to_parent =
@@ -329,10 +324,7 @@ impl Frame {
     /// let frame = Frame::new_origin("base");
     /// let pose = frame.add_pose(Vector3::new(0.5, 0.0, 0.0), UnitQuaternion::identity());
     /// ```
-    pub fn add_pose<O>(&self, position: Vector3<f64>, orientation: O) -> Pose
-    where
-        O: IntoOrientation,
-    {
+    pub fn add_pose(&self, position: Vector3<f64>, orientation: impl Into<Rotation>) -> Pose {
         Pose::new(self.downgrade(), position, orientation)
     }
 
@@ -498,7 +490,7 @@ mod tests {
             .add_child(
                 "dummy",
                 Vector3::new(0.0, 1.0, 0.0),
-                (0.0, 0.0, std::f64::consts::FRAC_PI_2),
+                Rotation::from_rpy(0.0, 0.0, std::f64::consts::FRAC_PI_2),
             )
             .unwrap();
 
