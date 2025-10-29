@@ -55,13 +55,13 @@ class RPY:
         """
         return (self.roll, self.pitch, self.yaw)
 
-    def to_quaternion(self) -> Quaternion:
-        """Returns the angles as quaternion.
+    def to_rotation(self) -> Rotation:
+        """Converts the angles as unified rotation.
 
         Returns:
-            The angles as quaternion.
+            The angles as unified rotation.
         """
-        return Quaternion(*self._core_rpy.to_quaternion().to_tuple())
+        return Rotation.from_rpy(self.roll, self.pitch, self.yaw)
 
     def __str__(self) -> str:
         return self._core_rpy.__str__()
@@ -124,19 +124,90 @@ class Quaternion:
         """
         return (self.x, self.y, self.z, self.w)
 
-    def to_rpy(self) -> RPY:
-        """Returns the angles as quaternion.
+    def to_rotation(self) -> Rotation:
+        """Converts the quaternion to unified rotation.
 
         Returns:
-            The angles as quaternion.
+            The angles as unified rotation.
         """
-        return RPY(*self._core_quaternion.to_rpy().to_tuple())
+        return Rotation.from_quaternion(self.x, self.y, self.z, self.w)
 
     def __str__(self) -> str:
         return self._core_quaternion.__str__()
 
     def __repr__(self) -> str:
         return self._core_quaternion.__repr__()
+
+
+class Rotation:
+    """Defines a unified rotation representation."""
+
+    _core_rotation: _core.Rotation
+
+    @classmethod
+    def from_quaternion(cls, x: float, y: float, z: float, w: float) -> Rotation:
+        """Initializes the rotation from quaternion values.
+
+        Args:
+            x: The x value.
+            y: The y value.
+            z: The z value.
+            w: The w value.
+
+        Returns:
+            The initialized instance.
+        """
+        instance = cls.__new__(cls)
+        instance._core_rotation = _core.Rotation.from_quat(x, y, z, w)
+        return instance
+
+    @classmethod
+    def from_rpy(cls, roll: float, pitch: float, yaw: float) -> Rotation:
+        """Initializes the rotation from RPY values.
+
+        Args:
+            roll: The roll value.
+            pitch: The pitch value.
+            yaw: The yaw value.
+
+        Returns:
+            The initialized instance.
+        """
+        instance = cls.__new__(cls)
+        instance._core_rotation = _core.Rotation.from_rpy(roll, pitch, yaw)
+        return instance
+
+    def to_quaternion(self) -> Quaternion:
+        """Converts the rotation to quaternion.
+
+        Returns:
+            The quaternion representation of the rotation.
+        """
+        return Quaternion(*self._core_rotation.to_quat().to_tuple())
+
+    def to_rpy(self) -> RPY:
+        """Converts the rotation to RPY.
+
+        Returns:
+            The RPY representation of the rotation.
+        """
+        return RPY(*self._core_rotation.to_rpy().to_tuple())
+
+    @property
+    def _binding_structure(self) -> Any:
+        return self._core_rotation
+
+    @classmethod
+    def _from_rust(cls, rust_rotation: _core.Rotation) -> Rotation:
+        instance = cls.__new__(cls)
+        instance._core_rotation = rust_rotation
+        return instance
+
+    def __str__(self) -> str:
+        return self._core_rotation.__str__()
+
+    def __repr__(self) -> str:
+        return self._core_rotation.__repr__()
 
 
 class Position:

@@ -1,7 +1,9 @@
 use nalgebra::{UnitQuaternion, Vector3};
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 
 use crate::CartesianTreeError;
+use crate::rotation::Rotation;
 
 impl From<CartesianTreeError> for PyErr {
     fn from(err: CartesianTreeError) -> Self {
@@ -40,9 +42,9 @@ impl PyRPY {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    fn to_quaternion(&self) -> PyQuaternion {
-        PyQuaternion {
-            quat: UnitQuaternion::from_euler_angles(self.rpy.x, self.rpy.y, self.rpy.z),
+    fn to_rotation(&self) -> PyRotation {
+        PyRotation {
+            rust_rotation: Rotation::from_rpy(self.rpy.x, self.rpy.y, self.rpy.z),
         }
     }
 
@@ -61,12 +63,7 @@ impl PyRPY {
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "({:.4}, {:.4}, {:.4})",
-            self.roll(),
-            self.pitch(),
-            self.yaw(),
-        )
+        self.__str__()
     }
 }
 
@@ -86,9 +83,15 @@ impl PyQuaternion {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    fn to_rpy(&self) -> PyRPY {
-        let (roll, pitch, yaw) = self.quat.euler_angles();
-        PyRPY::new(roll, pitch, yaw)
+    fn to_rotation(&self) -> PyRotation {
+        PyRotation {
+            rust_rotation: Rotation::from_quat(
+                self.quat.coords.x,
+                self.quat.coords.y,
+                self.quat.coords.z,
+                self.quat.coords.w,
+            ),
+        }
     }
 
     #[getter]
@@ -123,7 +126,7 @@ impl PyQuaternion {
 
     fn __str__(&self) -> String {
         format!(
-            "({:.4}, {:.4}, {:.4}, {:.4})",
+            "(<{:.4}, {:.4}, {:.4}>, {:.4})",
             self.x(),
             self.y(),
             self.z(),
@@ -132,13 +135,55 @@ impl PyQuaternion {
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "({:.4}, {:.4}, {:.4}, {:.4})",
-            self.x(),
-            self.y(),
-            self.z(),
-            self.w()
-        )
+        self.__str__()
+    }
+}
+
+#[pyclass(name = "Rotation", unsendable)]
+#[derive(Clone, Copy, Debug)]
+pub struct PyRotation {
+    pub rust_rotation: Rotation,
+}
+
+#[pymethods]
+impl PyRotation {
+    #[classmethod]
+    fn from_quat(_cls: &Bound<'_, PyType>, x: f64, y: f64, z: f64, w: f64) -> Self {
+        Self {
+            rust_rotation: Rotation::from_quat(x, y, z, w),
+        }
+    }
+
+    #[classmethod]
+    const fn from_rpy(_cls: &Bound<'_, PyType>, roll: f64, pitch: f64, yaw: f64) -> Self {
+        Self {
+            rust_rotation: Rotation::from_rpy(roll, pitch, yaw),
+        }
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn to_quat(&self) -> PyQuaternion {
+        let quat = self.rust_rotation.to_quat();
+        PyQuaternion { quat }
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn to_rpy(&self) -> PyRPY {
+        let rpy = self.rust_rotation.to_rpy();
+        PyRPY { rpy }
+    }
+
+    fn __str__(&self) -> String {
+        match &self.rust_rotation {
+            Rotation::Quaternion(q) => {
+                format!("Quaternion({:.4}, {:.4}, {:.4}, {:.4})", q.i, q.j, q.k, q.w)
+            }
+            Rotation::Rpy(rpy) => format!("RPY({:.4}, {:.4}, {:.4})", rpy.x, rpy.y, rpy.z),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
     }
 }
 
@@ -182,6 +227,6 @@ impl PyPosition {
     }
 
     fn __repr__(&self) -> String {
-        format!("({:.4}, {:.4}, {:.4})", self.x(), self.y(), self.z())
+        self.__str__()
     }
 }

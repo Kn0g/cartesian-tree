@@ -4,7 +4,7 @@ use crate::{
     Pose as RustPose,
     bindings::{
         PyFrame,
-        utils::{PyPosition, PyQuaternion},
+        utils::{PyPosition, PyRotation},
     },
 };
 
@@ -22,21 +22,22 @@ impl PyPose {
             .map(|frame| PyFrame { rust_frame: frame })
     }
 
-    const fn transformation(&self) -> (PyPosition, PyQuaternion) {
+    fn transformation(&self) -> (PyPosition, PyRotation) {
         let isometry = self.rust_pose.transformation();
         (
             PyPosition {
                 position: isometry.translation.vector,
             },
-            PyQuaternion {
-                quat: isometry.rotation,
+            PyRotation {
+                rust_rotation: isometry.rotation.into(),
             },
         )
     }
 
-    #[pyo3(signature = (position, quaternion))]
-    fn update(&mut self, position: PyPosition, quaternion: PyQuaternion) {
-        self.rust_pose.update(position.position, quaternion.quat);
+    #[pyo3(signature = (position, orientation))]
+    fn update(&mut self, position: PyPosition, orientation: PyRotation) {
+        self.rust_pose
+            .update(position.position, orientation.rust_rotation);
     }
 
     #[pyo3(signature = (target_frame))]
@@ -64,20 +65,6 @@ impl PyPose {
     }
 
     fn __repr__(&self) -> String {
-        let isometry = self.rust_pose.transformation();
-        let position = isometry.translation.vector;
-        let quaternion = isometry.rotation.coords;
-        format!(
-            "'{}', ({:.2}, {:.2}, {:.2})({:.4}, {:.4}, {:.4}, {:.4}))",
-            self.frame()
-                .map_or_else(|| "Unknown".to_string(), |frame| frame.name()),
-            position.x,
-            position.y,
-            position.z,
-            quaternion.x,
-            quaternion.y,
-            quaternion.z,
-            quaternion.w,
-        )
+        self.__str__()
     }
 }
