@@ -48,7 +48,6 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --compatibility pypi
-          manylinux: 2014
           sccache: False
       - uses: actions/upload-artifact@v4
         with:
@@ -78,7 +77,6 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --compatibility pypi
-          manylinux: musllinux_1_2
           sccache: False
       - uses: actions/upload-artifact@v4
         with:
