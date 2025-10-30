@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .helper import RPY, Position, Quaternion
+from .helper import RPY, Quaternion, Vector3
 from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
 
 
@@ -33,7 +33,7 @@ class Frame:
         """The depth from the frame to its root."""
         return self._core_frame.depth
 
-    def add_child(self, name: str, position: Position, orientation: RPY | Quaternion) -> Frame:
+    def add_child(self, name: str, position: Vector3, orientation: RPY | Quaternion) -> Frame:
         """Adds a new child frame to the current frame.
 
         Args:
@@ -54,7 +54,7 @@ class Frame:
         return Frame._from_rust(binding_frame)
 
     def calibrate_child(
-        self, name: str, desired_position: Position, desired_orientation: RPY | Quaternion, reference_pose: Pose
+        self, name: str, desired_position: Vector3, desired_orientation: RPY | Quaternion, reference_pose: Pose
     ) -> Frame:
         """Adds a child frame such that a reference pose, expressed in the new frame, matches the desired isometry.
 
@@ -81,7 +81,7 @@ class Frame:
         )
         return Frame._from_rust(binding_frame)
 
-    def add_pose(self, position: Position, orientation: RPY | Quaternion) -> Pose:
+    def add_pose(self, position: Vector3, orientation: RPY | Quaternion) -> Pose:
         """Adds a pose to the current frame.
 
         Args:
@@ -97,22 +97,22 @@ class Frame:
         binding_pose = self._core_frame.add_pose(position._binding_structure, orientation._binding_structure)
         return Pose._from_rust(binding_pose)
 
-    def transformation_to_parent(self) -> tuple[Position, Quaternion]:
+    def transformation_to_parent(self) -> tuple[Vector3, Quaternion]:
         """Returns the transformation from this frame to its parent frame.
 
         Returns:
-            The transformation from this frame to its parent frame (Position, Quaternion(x, y, z, w)).
+            The transformation from this frame to its parent frame (translation, rotation).
 
         Raises:
             ValueError: If the frame has no parent.
         """
         binding_position, binding_quat = self._core_frame.transformation_to_parent()
         return (
-            Position(*binding_position.to_tuple()),
+            Vector3(*binding_position.to_tuple()),
             Quaternion(*binding_quat.to_tuple()),
         )
 
-    def update_transformation(self, position: Position, orientation: RPY | Quaternion) -> None:
+    def update_transformation(self, position: Vector3, orientation: RPY | Quaternion) -> None:
         """Updates the frames transformation relative to its parent.
 
         Args:
@@ -206,7 +206,7 @@ class Pose:
         """Returns the frame of the pose."""
         return Frame._from_rust(self._core_pose.frame())
 
-    def transformation(self) -> tuple[Position, Quaternion]:
+    def transformation(self) -> tuple[Vector3, Quaternion]:
         """Returns the transformation of the pose to its parent frame.
 
         Returns:
@@ -214,11 +214,11 @@ class Pose:
         """
         binding_position, binding_quat = self._core_pose.transformation()
         return (
-            Position(*binding_position.to_tuple()),
+            Vector3(*binding_position.to_tuple()),
             Quaternion(*binding_quat.to_tuple()),
         )
 
-    def update(self, position: Position, orientation: RPY | Quaternion) -> None:
+    def update(self, position: Vector3, orientation: RPY | Quaternion) -> None:
         """Updates the pose's transformation.
 
         Args:

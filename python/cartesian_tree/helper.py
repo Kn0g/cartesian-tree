@@ -139,56 +139,56 @@ class Quaternion:
         return self._core_quaternion.__repr__()
 
 
-class Position:
-    """Defines a position."""
+class Vector3:
+    """Defines a vector in Cartesian space."""
 
     def __init__(self, x: float, y: float, z: float) -> None:
-        """Initializes the position in meter.
+        """Initializes the vector.
 
         Args:
-            x: The x value in meter.
-            y: The y value in meter.
-            z: The z value in meter.
+            x: The x value.
+            y: The y value.
+            z: The z value.
         """
-        self._core_position = _core.Position(x, y, z)
+        self._core_vector = _core.Vector3(x, y, z)
 
     @property
     def x(self) -> float:
-        """The x value in meter."""
-        return self._core_position.x
+        """The x value."""
+        return self._core_vector.x
 
     @property
     def y(self) -> float:
-        """The y value in meter."""
-        return self._core_position.y
+        """The y value."""
+        return self._core_vector.y
 
     @property
     def z(self) -> float:
-        """The z value in meter."""
-        return self._core_position.z
+        """The z value."""
+        return self._core_vector.z
 
     @property
     def _binding_structure(self) -> Any:
-        return self._core_position
+        return self._core_vector
 
     def to_list(self) -> list[float]:
-        """Returns the position as list.
+        """Returns the vector as list.
 
         Returns:
-            The position as list.
+            The vector as list.
         """
         return [self.x, self.y, self.z]
 
     def to_tuple(self) -> tuple[float, float, float]:
-        """Returns the position as tuple.
+        """Returns the vector as tuple.
 
         Returns:
-            The position as tuple.
+            The vector as tuple.
         """
         return (self.x, self.y, self.z)
 
     def __str__(self) -> str:
-        return self._core_position.__str__()
+        return self._core_vector.__str__()
 
     def __repr__(self) -> str:
-        return self._core_position.__repr__()
+        return self._core_vector.__repr__()

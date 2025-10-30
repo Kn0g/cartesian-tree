@@ -4,7 +4,7 @@ use crate::{
     Frame as RustFrame,
     bindings::{
         PyPose,
-        utils::{PyPosition, PyQuaternion},
+        utils::{PyQuaternion, PyVector3},
     },
     tree::{HasChildren, HasParent, Walking},
 };
@@ -34,12 +34,12 @@ impl PyFrame {
     fn add_child(
         &self,
         name: String,
-        position: PyPosition,
+        position: PyVector3,
         quaternion: PyQuaternion,
     ) -> PyResult<Self> {
         let child_frame = self
             .rust_frame
-            .add_child(name, position.position, quaternion.quat)?;
+            .add_child(name, position.inner, quaternion.quat)?;
         Ok(Self {
             rust_frame: child_frame,
         })
@@ -49,13 +49,13 @@ impl PyFrame {
     fn calibrate_child(
         &self,
         name: String,
-        desired_position: PyPosition,
+        desired_position: PyVector3,
         desired_quaternion: PyQuaternion,
         reference_pose: &PyPose,
     ) -> PyResult<Self> {
         let new_rust_frame = self.rust_frame.calibrate_child(
             name,
-            desired_position.position,
+            desired_position.inner,
             desired_quaternion.quat,
             &reference_pose.rust_pose,
         )?;
@@ -65,16 +65,16 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (position, quaternion))]
-    fn add_pose(&self, position: PyPosition, quaternion: PyQuaternion) -> PyPose {
-        let rust_pose = self.rust_frame.add_pose(position.position, quaternion.quat);
+    fn add_pose(&self, position: PyVector3, quaternion: PyQuaternion) -> PyPose {
+        let rust_pose = self.rust_frame.add_pose(position.inner, quaternion.quat);
         PyPose { rust_pose }
     }
 
-    fn transformation_to_parent(&self) -> PyResult<(PyPosition, PyQuaternion)> {
+    fn transformation_to_parent(&self) -> PyResult<(PyVector3, PyQuaternion)> {
         let isometry = self.rust_frame.transform_to_parent()?;
         Ok((
-            PyPosition {
-                position: isometry.translation.vector,
+            PyVector3 {
+                inner: isometry.translation.vector,
             },
             PyQuaternion {
                 quat: isometry.rotation,
@@ -83,13 +83,9 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (position, quaternion))]
-    fn update_transformation(
-        &self,
-        position: PyPosition,
-        quaternion: PyQuaternion,
-    ) -> PyResult<()> {
+    fn update_transformation(&self, position: PyVector3, quaternion: PyQuaternion) -> PyResult<()> {
         self.rust_frame
-            .update_transform(position.position, quaternion.quat)?;
+            .update_transform(position.inner, quaternion.quat)?;
         Ok(())
     }
 
