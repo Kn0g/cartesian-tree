@@ -142,39 +142,39 @@ impl PyQuaternion {
     }
 }
 
-#[pyclass(name = "Position", unsendable)]
+#[pyclass(name = "Vector3", unsendable)]
 #[derive(Clone, Copy, Debug)]
-pub struct PyPosition {
-    pub position: Vector3<f64>,
+pub struct PyVector3 {
+    pub inner: Vector3<f64>,
 }
 
 #[pymethods]
-impl PyPosition {
+impl PyVector3 {
     #[new]
     const fn new(x: f64, y: f64, z: f64) -> Self {
         Self {
-            position: Vector3::new(x, y, z),
+            inner: Vector3::new(x, y, z),
         }
     }
 
     #[getter]
     fn x(&self) -> f64 {
-        self.position.x
+        self.inner.x
     }
 
     #[getter]
     fn y(&self) -> f64 {
-        self.position.y
+        self.inner.y
     }
 
     #[getter]
     fn z(&self) -> f64 {
-        self.position.z
+        self.inner.z
     }
 
     #[allow(clippy::wrong_self_convention)]
     fn to_tuple(&self) -> (f64, f64, f64) {
-        (self.position.x, self.position.y, self.position.z)
+        (self.inner.x, self.inner.y, self.inner.z)
     }
 
     fn __str__(&self) -> String {
