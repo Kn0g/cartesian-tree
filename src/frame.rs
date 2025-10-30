@@ -165,8 +165,10 @@ impl Frame {
         if self.parent().is_none() {
             return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
         }
-        self.borrow_mut().transform_to_parent =
-            Isometry3::from_parts(Translation3::from(position), orientation.into().to_quat());
+        self.borrow_mut().transform_to_parent = Isometry3::from_parts(
+            Translation3::from(position),
+            orientation.into().as_quaternion(),
+        );
         Ok(())
     }
 
@@ -218,8 +220,10 @@ impl Frame {
                 ));
             }
         }
-        let transform =
-            Isometry3::from_parts(Translation3::from(position), orientation.into().to_quat());
+        let transform = Isometry3::from_parts(
+            Translation3::from(position),
+            orientation.into().as_quaternion(),
+        );
 
         let child = Self {
             data: Rc::new(RefCell::new(FrameData {
@@ -290,7 +294,7 @@ impl Frame {
 
         let desired_pose = Isometry3::from_parts(
             Translation3::from(desired_position),
-            desired_orientation.into().to_quat(),
+            desired_orientation.into().as_quaternion(),
         );
 
         let t_calibrated_to_parent =

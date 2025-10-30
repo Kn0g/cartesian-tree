@@ -12,7 +12,7 @@ pub enum Rotation {
 impl Rotation {
     /// Creates a Rotation from a quaternion (x, y, z, w).
     #[must_use]
-    pub fn from_quat(x: f64, y: f64, z: f64, w: f64) -> Self {
+    pub fn from_quaternion(x: f64, y: f64, z: f64, w: f64) -> Self {
         Self::Quaternion(UnitQuaternion::new_normalize(Quaternion::new(w, x, y, z)))
     }
 
@@ -24,7 +24,7 @@ impl Rotation {
 
     /// Converts this rotation to a `UnitQuaternion`.
     #[must_use]
-    pub fn to_quat(&self) -> UnitQuaternion<f64> {
+    pub fn as_quaternion(&self) -> UnitQuaternion<f64> {
         match self {
             Self::Quaternion(q) => *q,
             Self::Rpy(rpy) => UnitQuaternion::from_euler_angles(rpy.x, rpy.y, rpy.z),
@@ -33,9 +33,14 @@ impl Rotation {
 
     /// Converts to RPY (roll, pitch, yaw) in radians.
     #[must_use]
-    pub fn to_rpy(&self) -> Vector3<f64> {
-        let rpy = self.to_quat().euler_angles();
-        Vector3::new(rpy.0, rpy.1, rpy.2)
+    pub fn as_rpy(&self) -> Vector3<f64> {
+        match self {
+            Self::Quaternion(q) => {
+                let (roll, pitch, yaw) = UnitQuaternion::euler_angles(q);
+                Vector3::new(roll, pitch, yaw)
+            }
+            Self::Rpy(rpy) => *rpy,
+        }
     }
 }
 

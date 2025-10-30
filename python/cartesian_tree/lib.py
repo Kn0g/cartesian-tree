@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .helper import Rotation, Vector3
+from .base_types import Rotation, Vector3
 from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
 
 

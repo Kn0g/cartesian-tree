@@ -29,7 +29,7 @@ impl Pose {
             parent: frame,
             transform_to_parent: Isometry3::from_parts(
                 Translation3::from(position),
-                orientation.into().to_quat(),
+                orientation.into().as_quaternion(),
             ),
         }
     }
@@ -79,8 +79,10 @@ impl Pose {
     /// pose.update(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity());
     /// ```
     pub fn update(&mut self, position: Vector3<f64>, orientation: impl Into<Rotation>) {
-        self.transform_to_parent =
-            Isometry3::from_parts(Translation3::from(position), orientation.into().to_quat());
+        self.transform_to_parent = Isometry3::from_parts(
+            Translation3::from(position),
+            orientation.into().as_quaternion(),
+        );
     }
 
     /// Transforms this pose into the coordinate system of the given target frame.

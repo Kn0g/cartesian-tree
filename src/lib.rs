@@ -28,8 +28,6 @@ fn cartesian_tree(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<bindings::frame::PyFrame>()?;
     m.add_class::<bindings::pose::PyPose>()?;
     m.add_class::<bindings::utils::PyVector3>()?;
-    m.add_class::<bindings::utils::PyRPY>()?;
-    m.add_class::<bindings::utils::PyQuaternion>()?;
     m.add_class::<bindings::utils::PyRotation>()?;
     Ok(())
 }
