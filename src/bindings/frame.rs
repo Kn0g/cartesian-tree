@@ -4,7 +4,7 @@ use crate::{
     Frame as RustFrame,
     bindings::{
         PyPose,
-        utils::{PyPosition, PyRotation},
+        utils::{PyRotation, PyVector3},
     },
     tree::{HasChildren, HasParent, Walking},
 };
@@ -34,12 +34,12 @@ impl PyFrame {
     fn add_child(
         &self,
         name: String,
-        position: PyPosition,
+        position: PyVector3,
         orientation: PyRotation,
     ) -> PyResult<Self> {
         let child_frame =
             self.rust_frame
-                .add_child(name, position.position, orientation.rust_rotation)?;
+                .add_child(name, position.inner, orientation.rust_rotation)?;
         Ok(Self {
             rust_frame: child_frame,
         })
@@ -49,13 +49,13 @@ impl PyFrame {
     fn calibrate_child(
         &self,
         name: String,
-        desired_position: PyPosition,
+        desired_position: PyVector3,
         desired_orientation: PyRotation,
         reference_pose: &PyPose,
     ) -> PyResult<Self> {
         let new_rust_frame = self.rust_frame.calibrate_child(
             name,
-            desired_position.position,
+            desired_position.inner,
             desired_orientation.rust_rotation,
             &reference_pose.rust_pose,
         )?;
@@ -65,18 +65,18 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (position, orientation))]
-    fn add_pose(&self, position: PyPosition, orientation: PyRotation) -> PyPose {
+    fn add_pose(&self, position: PyVector3, orientation: PyRotation) -> PyPose {
         let rust_pose = self
             .rust_frame
-            .add_pose(position.position, orientation.rust_rotation);
+            .add_pose(position.inner, orientation.rust_rotation);
         PyPose { rust_pose }
     }
 
-    fn transformation_to_parent(&self) -> PyResult<(PyPosition, PyRotation)> {
+    fn transformation_to_parent(&self) -> PyResult<(PyVector3, PyRotation)> {
         let isometry = self.rust_frame.transform_to_parent()?;
         Ok((
-            PyPosition {
-                position: isometry.translation.vector,
+            PyVector3 {
+                inner: isometry.translation.vector,
             },
             PyRotation {
                 rust_rotation: isometry.rotation.into(),
@@ -85,9 +85,9 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (position, orientation))]
-    fn update_transformation(&self, position: PyPosition, orientation: PyRotation) -> PyResult<()> {
+    fn update_transformation(&self, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
         self.rust_frame
-            .update_transform(position.position, orientation.rust_rotation)?;
+            .update_transform(position.inner, orientation.rust_rotation)?;
         Ok(())
     }
 
