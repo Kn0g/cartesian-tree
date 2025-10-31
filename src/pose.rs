@@ -1,6 +1,6 @@
 use crate::CartesianTreeError;
 use crate::frame::{Frame, FrameData};
-use crate::orientation::IntoOrientation;
+use crate::rotation::Rotation;
 use crate::tree::Walking;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use std::cell::RefCell;
@@ -20,19 +20,16 @@ impl Pose {
     ///
     /// This function is intended for internal use. To create a pose associated with a frame,
     /// use [`Frame::add_pose`], which handles the association safely.
-    pub(crate) fn new<O>(
+    pub(crate) fn new(
         frame: Weak<RefCell<FrameData>>,
         position: Vector3<f64>,
-        orientation: O,
-    ) -> Self
-    where
-        O: IntoOrientation,
-    {
+        orientation: impl Into<Rotation>,
+    ) -> Self {
         Self {
             parent: frame,
             transform_to_parent: Isometry3::from_parts(
                 Translation3::from(position),
-                orientation.into_orientation(),
+                orientation.into().as_quaternion(),
             ),
         }
     }
@@ -81,12 +78,11 @@ impl Pose {
     /// let mut pose = root.add_pose(Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity());
     /// pose.update(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity());
     /// ```
-    pub fn update<O>(&mut self, position: Vector3<f64>, orientation: O)
-    where
-        O: IntoOrientation,
-    {
-        self.transform_to_parent =
-            Isometry3::from_parts(Translation3::from(position), orientation.into_orientation());
+    pub fn update(&mut self, position: Vector3<f64>, orientation: impl Into<Rotation>) {
+        self.transform_to_parent = Isometry3::from_parts(
+            Translation3::from(position),
+            orientation.into().as_quaternion(),
+        );
     }
 
     /// Transforms this pose into the coordinate system of the given target frame.
