@@ -4,7 +4,7 @@ from math import radians
 
 import pytest
 
-from cartesian_tree import Frame, Pose, Rotation, Vector3
+from cartesian_tree import Frame, Isometry, Pose, Rotation, Vector3
 
 
 def test_create_root_frame() -> None:
@@ -68,11 +68,96 @@ def test_transformation_to_parent_and_update() -> None:
     # Update transformation
     new_position = Vector3(5.0, 6.0, 7.0)
     new_orientation = Rotation.from_quaternion(0.0, 0.7071, 0.0, 0.7071)
-    child.update_transformation(new_position, new_orientation)
+    child.set(new_position, new_orientation)
 
     updated_pos, updated_quat = child.transformation_to_parent()
     assert updated_pos.as_tuple() == pytest.approx((5.0, 6.0, 7.0), abs=1e-5)
     assert updated_quat.as_quaternion().as_tuple() == pytest.approx((0.0, 0.7071, 0.0, 0.7071), abs=1e-5)
+
+
+def test_apply_in_parent_frame() -> None:
+    root = Frame("root")
+    position = Vector3(1.0, 0.0, 1.0)
+    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    child = root.add_child("child", position, orientation)
+
+    # Update transformation
+    rotation_to_apply = Rotation.from_rpy(0.0, 0.0, radians(90))
+    child.apply_in_parent_frame(Isometry.from_rotation(rotation_to_apply))
+
+    updated_pos, _ = child.transformation_to_parent()
+    assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 1.0), abs=1e-5)
+
+    # Update transformation
+    translation_to_apply = Vector3(1.0, 0.0, 1.0)
+    child.apply_in_parent_frame(Isometry.from_translation(translation_to_apply))
+
+    updated_pos, _ = child.transformation_to_parent()
+    assert updated_pos.as_tuple() == pytest.approx((1.0, 1.0, 2.0), abs=1e-5)
+
+
+def test_apply_in_local_frame() -> None:
+    root = Frame("root")
+    position = Vector3(0.0, 0.0, 0.0)
+    orientation = Rotation.from_rpy(0.0, 0.0, radians(90))
+    child = root.add_child("child", position, orientation)
+
+    # Update transformation
+    translation_to_apply = Vector3(1.0, 0.0, 0.0)
+    child.apply_in_local_frame(Isometry.from_translation(translation_to_apply))
+
+    updated_pos, _ = child.transformation_to_parent()
+    assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)
+
+    # Update transformation
+    rotation_to_apply = Rotation.from_rpy(0.0, 0.0, radians(90))
+    child.apply_in_local_frame(Isometry.from_rotation(rotation_to_apply))
+
+    updated_pos, updated_rot = child.transformation_to_parent()
+    assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)
+    assert updated_rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, radians(180)), abs=1e-5)
+
+
+def test_pose_apply_in_parent_frame() -> None:
+    root = Frame("root")
+    position = Vector3(1.0, 0.0, 1.0)
+    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    pose = root.add_pose(position, orientation)
+
+    # Update transformation
+    rotation_to_apply = Rotation.from_rpy(0.0, 0.0, radians(90))
+    pose.apply_in_parent_frame(Isometry.from_rotation(rotation_to_apply))
+
+    updated_pos, _ = pose.transformation()
+    assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 1.0), abs=1e-5)
+
+    # Update transformation
+    translation_to_apply = Vector3(1.0, 0.0, 1.0)
+    pose.apply_in_parent_frame(Isometry.from_translation(translation_to_apply))
+
+    updated_pos, _ = pose.transformation()
+    assert updated_pos.as_tuple() == pytest.approx((1.0, 1.0, 2.0), abs=1e-5)
+
+
+def test_pose_apply_in_local_frame() -> None:
+    root = Frame("root")
+    position = Vector3(0.0, 0.0, 0.0)
+    orientation = Rotation.from_rpy(0.0, 0.0, radians(90))
+    pose = root.add_pose(position, orientation)
+    # Update transformation
+    translation_to_apply = Vector3(1.0, 0.0, 0.0)
+    pose.apply_in_local_frame(Isometry.from_translation(translation_to_apply))
+
+    updated_pos, _ = pose.transformation()
+    assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)
+
+    # Update transformation
+    rotation_to_apply = Rotation.from_rpy(0.0, 0.0, radians(90))
+    pose.apply_in_local_frame(Isometry.from_rotation(rotation_to_apply))
+
+    updated_pos, updated_rot = pose.transformation()
+    assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)
+    assert updated_rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, radians(180)), abs=1e-5)
 
 
 def test_add_pose_and_update() -> None:
@@ -89,7 +174,7 @@ def test_add_pose_and_update() -> None:
     # Update the pose
     new_position = Vector3(4.0, 5.0, 6.0)
     new_orientation = Rotation.from_rpy(0.0, 0.0, 0.0)
-    pose.update(new_position, new_orientation)
+    pose.set(new_position, new_orientation)
     up_pos, _ = pose.transformation()
     assert up_pos.as_tuple() == pytest.approx((4.0, 5.0, 6.0), abs=1e-5)
 

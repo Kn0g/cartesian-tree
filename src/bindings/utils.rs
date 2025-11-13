@@ -1,4 +1,4 @@
-use nalgebra::Vector3;
+use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 
@@ -99,6 +99,100 @@ impl PyVector3 {
 
     fn __str__(&self) -> String {
         format!("({:.4}, {:.4}, {:.4})", self.x(), self.y(), self.z())
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(name = "Isometry", unsendable)]
+#[derive(Clone, Copy, Debug)]
+pub struct PyIsometry {
+    pub inner: Isometry3<f64>,
+}
+
+#[pymethods]
+impl PyIsometry {
+    #[classmethod]
+    fn identity(_cls: &Bound<'_, PyType>) -> Self {
+        Self {
+            inner: Isometry3::identity(),
+        }
+    }
+
+    #[classmethod]
+    fn from_translation(_cls: &Bound<'_, PyType>, translation: PyVector3) -> Self {
+        Self {
+            inner: Isometry3::from_parts(
+                Translation3::from(translation.inner),
+                UnitQuaternion::identity(),
+            ),
+        }
+    }
+
+    #[classmethod]
+    fn from_rotation(_cls: &Bound<'_, PyType>, rotation: PyRotation) -> Self {
+        Self {
+            inner: Isometry3::from_parts(
+                Translation3::new(0.0, 0.0, 0.0),
+                rotation.rust_rotation.as_quaternion(),
+            ),
+        }
+    }
+
+    #[classmethod]
+    fn from_parts(_cls: &Bound<'_, PyType>, translation: PyVector3, rotation: PyRotation) -> Self {
+        Self {
+            inner: Isometry3::from_parts(
+                Translation3::from(translation.inner),
+                rotation.rust_rotation.as_quaternion(),
+            ),
+        }
+    }
+
+    const fn decompose(&self) -> (PyVector3, PyRotation) {
+        (
+            PyVector3 {
+                inner: self.inner.translation.vector,
+            },
+            PyRotation {
+                rust_rotation: Rotation::Quaternion(self.inner.rotation),
+            },
+        )
+    }
+
+    const fn translation(&self) -> PyVector3 {
+        PyVector3 {
+            inner: self.inner.translation.vector,
+        }
+    }
+
+    const fn rotation(&self) -> PyRotation {
+        PyRotation {
+            rust_rotation: Rotation::Quaternion(self.inner.rotation),
+        }
+    }
+
+    fn inverse(&self) -> Self {
+        Self {
+            inner: self.inner.inverse(),
+        }
+    }
+
+    fn __mul__(&self, other: &Self) -> Self {
+        Self {
+            inner: self.inner * other.inner,
+        }
+    }
+
+    fn __str__(&self) -> String {
+        let (translation, rotation) = self.decompose();
+        format!(
+            "Isometry(translation: {}, rotation: {})",
+            translation.__str__(),
+            rotation.__str__()
+        )
     }
 
     fn __repr__(&self) -> String {

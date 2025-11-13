@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base_types import Rotation, Vector3
+from .base_types import Isometry, Rotation, Vector3
 from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
 
 
@@ -103,17 +103,41 @@ class Frame:
             Rotation._from_rust(binding_rotation),
         )
 
-    def update_transformation(self, position: Vector3, orientation: Rotation) -> None:
-        """Updates the frames transformation relative to its parent.
+    def set(self, position: Vector3, orientation: Rotation) -> None:
+        """Sets the frames transformation relative to its parent.
 
         Args:
             position: The translational offset from the parent.
             orientation: The orientational offset from the parent.
 
         Raises:
-            ValueError: If the frame has no parent or invalid dimensions.
+            ValueError: If the frame has no parent.
         """
-        self._core_frame.update_transformation(position._binding_structure, orientation._binding_structure)
+        self._core_frame.set(position._binding_structure, orientation._binding_structure)
+
+    def apply_in_parent_frame(self, isometry: Isometry) -> None:
+        """Applies the provided isometry interpreted in the parent frame to this frame.
+
+        Args:
+            isometry: The isometry (describing a motion in the parent frame coordinates) to
+                apply to the current transformation.
+
+        Raises:
+            ValueError: If the frame has no parent.
+        """
+        self._core_frame.apply_in_parent_frame(isometry._binding_structure)
+
+    def apply_in_local_frame(self, isometry: Isometry) -> None:
+        """Applies the provided isometry interpreted in this frame to this frame.
+
+        Args:
+            isometry: The isometry (describing a motion in this frame) to apply to the current
+                transformation.
+
+        Raises:
+            ValueError: If the frame has no parent.
+        """
+        self._core_frame.apply_in_local_frame(isometry._binding_structure)
 
     def to_json(self) -> str:
         """Serializes the frame tree to a JSON string.
@@ -207,14 +231,35 @@ class Pose:
             Rotation._from_rust(binding_rotation),
         )
 
-    def update(self, position: Vector3, orientation: Rotation) -> None:
-        """Updates the pose's transformation.
+    def set(self, position: Vector3, orientation: Rotation) -> None:
+        """Sets the pose's transformation.
 
         Args:
             position: The translational part of the pose.
             orientation: The orientational part of the pose.
         """
-        self._core_pose.update(position._binding_structure, orientation._binding_structure)
+        self._core_pose.set(position._binding_structure, orientation._binding_structure)
+
+    def apply_in_parent_frame(self, isometry: Isometry) -> None:
+        """Applies the provided isometry interpreted in the parent frame to this pose.
+
+        Args:
+            isometry: The isometry (describing a motion in the parent frame coordinates) to
+                apply to the current transformation.
+        """
+        self._core_pose.apply_in_parent_frame(isometry._binding_structure)
+
+    def apply_in_local_frame(self, isometry: Isometry) -> None:
+        """Applies the provided isometry interpreted in the body frame to this pose.
+
+        Args:
+            isometry: The isometry (describing a motion in this frame) to apply to the current
+                transformation.
+
+        Raises:
+            ValueError: If the frame has no parent.
+        """
+        self._core_pose.apply_in_local_frame(isometry._binding_structure)
 
     def in_frame(self, target_frame: Frame) -> Pose:
         """Transforms this pose into the coordinate system of the given target frame.

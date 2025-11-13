@@ -129,7 +129,7 @@ impl Frame {
         Ok(self.borrow().transform_to_parent)
     }
 
-    /// Updates the frame's transformation relative to its parent.
+    /// Sets the frame's transformation relative to its parent.
     ///
     /// This method modifies the frame's position and orientation relative to its parent frame.
     /// It fails if the frame is a root frame (i.e., has no parent).
@@ -154,10 +154,10 @@ impl Frame {
     /// let child = root
     ///     .add_child("camera", Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity())
     ///     .unwrap();
-    /// child.update_transform(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+    /// child.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
     ///     .unwrap();
     /// ```
-    pub fn update_transform(
+    pub fn set(
         &self,
         position: Vector3<f64>,
         orientation: impl Into<Rotation>,
@@ -169,6 +169,86 @@ impl Frame {
             Translation3::from(position),
             orientation.into().as_quaternion(),
         );
+        Ok(())
+    }
+
+    /// Applies the provided isometry interpreted in the parent frame to this frame.
+    ///
+    /// This method modifies the frame's position and orientation relative to its current position and orientation.
+    /// It fails if the frame is a root frame (i.e., has no parent).
+    ///
+    /// # Arguments
+    /// - `isometry`: The isometry (describing a motion in the parent frame coordinates) to apply to the current transformation.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the transformation was updated successfully.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has no parent (i.e., the root frame).
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Isometry3, Translation3, Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let child = root
+    ///     .add_child("camera", Vector3::new(1.0, 0.0, 1.0), UnitQuaternion::identity())
+    ///     .unwrap();
+    /// child.apply_in_parent_frame(&Isometry3::from_parts(Translation3::new(1.0, 0.0, 0.0), UnitQuaternion::identity()))
+    ///     .unwrap();
+    ///
+    /// ```
+    pub fn apply_in_parent_frame(
+        &self,
+        isometry: &Isometry3<f64>,
+    ) -> Result<(), CartesianTreeError> {
+        if self.parent().is_none() {
+            return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
+        }
+        let mut borrow = self.borrow_mut();
+        borrow.transform_to_parent = isometry * borrow.transform_to_parent;
+        Ok(())
+    }
+
+    /// Applies the provided isometry interpreted in this frame to this frame.
+    ///
+    /// This method modifies the frame's position and orientation relative to its current position and orientation.
+    /// It fails if the frame is a root frame (i.e., has no parent).
+    ///
+    /// # Arguments
+    /// - `isometry`: The isometry (describing a motion in this frame) to apply to the current transformation.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the transformation was updated successfully.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has no parent (i.e., the root frame).
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Isometry3, Translation3, Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let child = root
+    ///     .add_child("camera", Vector3::zeros(), UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2))
+    ///     .unwrap();
+    /// child.apply_in_local_frame(&Isometry3::from_parts(Translation3::new(1.0, 0.0, 0.0), UnitQuaternion::identity()))
+    ///     .unwrap();
+    ///
+    /// ```
+    pub fn apply_in_local_frame(
+        &self,
+        isometry: &Isometry3<f64>,
+    ) -> Result<(), CartesianTreeError> {
+        if self.parent().is_none() {
+            return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
+        }
+        let mut borrow = self.borrow_mut();
+        borrow.transform_to_parent *= isometry;
         Ok(())
     }
 
@@ -398,7 +478,7 @@ impl Frame {
 
         // only update if frame has parent
         if self.parent().is_some() {
-            self.update_transform(serial.position, serial.orientation)?;
+            self.set(serial.position, serial.orientation)?;
         }
 
         for potential_child in &serial.children {
@@ -442,6 +522,7 @@ impl HasChildren for Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_relative_eq;
     use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
@@ -580,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_transform() {
+    fn test_set_transform() {
         let root = Frame::new_origin("root");
         let child = root
             .add_child(
@@ -590,7 +671,7 @@ mod tests {
             )
             .unwrap();
         child
-            .update_transform(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+            .set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
             .unwrap();
         assert_eq!(
             child.transform_to_parent().unwrap().translation.vector,
@@ -599,7 +680,165 @@ mod tests {
 
         // Test root frame error
         assert!(
-            root.update_transform(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+            root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_apply_in_parent_frame() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child(
+                "dummy",
+                Vector3::new(1.0, 0.0, 1.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+        child
+            .apply_in_parent_frame(&Isometry3::from_parts(
+                Translation3::identity(),
+                UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+            ))
+            .unwrap();
+
+        assert_relative_eq!(
+            child.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(0.0, 1.0, 1.0),
+            epsilon = 1e-10
+        );
+
+        child
+            .apply_in_parent_frame(&Isometry3::from_parts(
+                Translation3::new(1.0, 0.0, 1.0),
+                UnitQuaternion::identity(),
+            ))
+            .unwrap();
+        assert_relative_eq!(
+            child.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(1.0, 1.0, 2.0),
+            epsilon = 1e-10
+        );
+
+        // Test root frame error
+        assert!(
+            root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_apply_in_local_frame() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child(
+                "dummy",
+                Vector3::zeros(),
+                UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+            )
+            .unwrap();
+
+        child
+            .apply_in_local_frame(&Isometry3::from_parts(
+                Translation3::new(1.0, 0.0, 0.0),
+                UnitQuaternion::identity(),
+            ))
+            .unwrap();
+
+        assert_relative_eq!(
+            child.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(0.0, 1.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        child
+            .apply_in_local_frame(&Isometry3::from_parts(
+                Translation3::identity(),
+                UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+            ))
+            .unwrap();
+        assert_relative_eq!(
+            child.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(0.0, 1.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        let (roll, pitch, yaw) = child.transform_to_parent().unwrap().rotation.euler_angles();
+        assert_relative_eq!(roll, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(pitch, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(yaw, std::f64::consts::PI, epsilon = 1e-10);
+
+        // Test root frame error
+        assert!(
+            root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_pose_apply_in_parent_frame() {
+        let root = Frame::new_origin("root");
+        let mut pose = root.add_pose(Vector3::new(1.0, 0.0, 1.0), UnitQuaternion::identity());
+
+        pose.apply_in_parent_frame(&Isometry3::from_parts(
+            Translation3::identity(),
+            UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+        ));
+
+        assert_relative_eq!(
+            pose.transformation().translation.vector,
+            Vector3::new(0.0, 1.0, 1.0),
+            epsilon = 1e-10
+        );
+
+        pose.apply_in_parent_frame(&Isometry3::from_parts(
+            Translation3::new(1.0, 0.0, 1.0),
+            UnitQuaternion::identity(),
+        ));
+        assert_relative_eq!(
+            pose.transformation().translation.vector,
+            Vector3::new(1.0, 1.0, 2.0),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_pose_apply_in_local_frame() {
+        let root = Frame::new_origin("root");
+        let mut pose = root.add_pose(
+            Vector3::zeros(),
+            UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+        );
+
+        pose.apply_in_local_frame(&Isometry3::from_parts(
+            Translation3::new(1.0, 0.0, 0.0),
+            UnitQuaternion::identity(),
+        ));
+
+        assert_relative_eq!(
+            pose.transformation().translation.vector,
+            Vector3::new(0.0, 1.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        pose.apply_in_local_frame(&Isometry3::from_parts(
+            Translation3::identity(),
+            UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+        ));
+        assert_relative_eq!(
+            pose.transformation().translation.vector,
+            Vector3::new(0.0, 1.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        let (roll, pitch, yaw) = pose.transformation().rotation.euler_angles();
+        assert_relative_eq!(roll, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(pitch, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(yaw, std::f64::consts::PI, epsilon = 1e-10);
+
+        // Test root frame error
+        assert!(
+            root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
                 .is_err()
         );
     }

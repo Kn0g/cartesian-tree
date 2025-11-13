@@ -4,7 +4,7 @@ use crate::{
     Frame as RustFrame,
     bindings::{
         PyPose,
-        utils::{PyRotation, PyVector3},
+        utils::{PyIsometry, PyRotation, PyVector3},
     },
     tree::{HasChildren, HasParent, Walking},
 };
@@ -85,9 +85,21 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (position, orientation))]
-    fn update_transformation(&self, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
+    fn set(&self, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
         self.rust_frame
-            .update_transform(position.inner, orientation.rust_rotation)?;
+            .set(position.inner, orientation.rust_rotation)?;
+        Ok(())
+    }
+
+    #[pyo3(signature = (isometry))]
+    fn apply_in_parent_frame(&self, isometry: PyIsometry) -> PyResult<()> {
+        self.rust_frame.apply_in_parent_frame(&isometry.inner)?;
+        Ok(())
+    }
+
+    #[pyo3(signature = (isometry))]
+    fn apply_in_local_frame(&self, isometry: PyIsometry) -> PyResult<()> {
+        self.rust_frame.apply_in_local_frame(&isometry.inner)?;
         Ok(())
     }
 
