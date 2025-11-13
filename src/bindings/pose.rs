@@ -4,7 +4,7 @@ use crate::{
     Pose as RustPose,
     bindings::{
         PyFrame,
-        utils::{PyRotation, PyVector3},
+        utils::{PyIsometry, PyRotation, PyVector3},
     },
 };
 
@@ -35,9 +35,19 @@ impl PyPose {
     }
 
     #[pyo3(signature = (position, orientation))]
-    fn update(&mut self, position: PyVector3, orientation: PyRotation) {
+    fn set(&mut self, position: PyVector3, orientation: PyRotation) {
         self.rust_pose
-            .update(position.inner, orientation.rust_rotation);
+            .set(position.inner, orientation.rust_rotation);
+    }
+
+    #[pyo3(signature = (isometry))]
+    fn apply_in_parent_frame(&mut self, isometry: PyIsometry) {
+        self.rust_pose.apply_in_parent_frame(&isometry.inner);
+    }
+
+    #[pyo3(signature = (isometry))]
+    fn apply_in_local_frame(&mut self, isometry: PyIsometry) {
+        self.rust_pose.apply_in_local_frame(&isometry.inner);
     }
 
     #[pyo3(signature = (target_frame))]

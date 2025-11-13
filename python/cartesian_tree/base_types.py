@@ -133,3 +133,117 @@ class Vector3:
 
     def __repr__(self) -> str:
         return self._core_vector.__repr__()
+
+
+class Isometry:
+    """Rigid 3D transformation."""
+
+    _core_isometry: _core.Isometry
+
+    @classmethod
+    def identity(cls) -> Isometry:
+        """Initializes the identity isometry."""
+        instance = cls.__new__(cls)
+        instance._core_isometry = _core.Isometry.identity()
+        return instance
+
+    @classmethod
+    def from_translation(cls, translation: Vector3) -> Isometry:
+        """Initializes the isometry from translation only.
+
+        Note, the rotation will be identity.
+
+        Args:
+            translation: The translation part.
+
+        Returns:
+            The initialized isometry instance.
+        """
+        instance = cls.__new__(cls)
+        instance._core_isometry = _core.Isometry.from_translation(translation._binding_structure)
+        return instance
+
+    @classmethod
+    def from_rotation(cls, rotation: Rotation) -> Isometry:
+        """Initializes the isometry from rotation only.
+
+        Note, the translation will be identity.
+
+        Args:
+            rotation: The rotation part.
+
+        Returns:
+            The initialized isometry instance.
+        """
+        instance = cls.__new__(cls)
+        instance._core_isometry = _core.Isometry.from_rotation(rotation._binding_structure)
+        return instance
+
+    @classmethod
+    def from_parts(cls, translation: Vector3, rotation: Rotation) -> Isometry:
+        """Initializes the isometry from translation and rotation.
+
+        Args:
+            translation: The translation part.
+            rotation: The rotation part.
+
+        Returns:
+            The initialized isometry instance.
+        """
+        instance = cls.__new__(cls)
+        instance._core_isometry = _core.Isometry.from_parts(translation._binding_structure, rotation._binding_structure)
+        return instance
+
+    def decompose(self) -> tuple[Vector3, Rotation]:
+        """Decomposes the isometry into translation and rotation.
+
+        Returns:
+            The translation and rotation.
+        """
+        binding_pos, binding_rot = self._core_isometry.decompose()
+        return Vector3(*binding_pos.to_tuple()), Rotation._from_rust(binding_rot)
+
+    def translation(self) -> Vector3:
+        """Returns the translation part of the isometry.
+
+        Returns:
+            The translation part.
+        """
+        binding_translation = self._core_isometry.translation()
+        return Vector3(*binding_translation.to_tuple())
+
+    def rotation(self) -> Rotation:
+        """Returns the rotation part of the isometry.
+
+        Returns:
+            The rotation part.
+        """
+        binding_rotation = self._core_isometry.rotation()
+        return Rotation._from_rust(binding_rotation)
+
+    def inverse(self) -> Isometry:
+        """Returns the inverse of the isometry.
+
+        Returns:
+            The inverse isometry.
+        """
+        return Isometry._from_rust(self._core_isometry.inverse())
+
+    def __mul__(self, other: Isometry) -> Isometry:
+        return Isometry._from_rust(self._core_isometry.__mul__(other._binding_structure))
+
+    @property
+    def _binding_structure(self) -> Any:
+        return self._core_isometry
+
+    @classmethod
+    def _from_rust(cls, rust_isometry: _core.Isometry) -> Isometry:
+        instance = cls.__new__(cls)
+        instance._core_isometry = rust_isometry
+        return instance
+
+    def __str__(self) -> str:
+        return self._core_isometry.__str__()
+
+    def __repr__(self) -> str:
+        return self._core_isometry.__repr__()
