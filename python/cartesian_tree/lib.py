@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .helper import RPY, Position, Quaternion
+from .base_types import Rotation, Vector3
 from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
 
 
@@ -33,7 +33,7 @@ class Frame:
         """The depth from the frame to its root."""
         return self._core_frame.depth
 
-    def add_child(self, name: str, position: Position, orientation: RPY | Quaternion) -> Frame:
+    def add_child(self, name: str, position: Vector3, orientation: Rotation) -> Frame:
         """Adds a new child frame to the current frame.
 
         Args:
@@ -47,14 +47,11 @@ class Frame:
         Raises:
             ValueError: If a child with the same name already exists.
         """
-        if isinstance(orientation, RPY):
-            orientation = orientation.to_quaternion()
-
         binding_frame = self._core_frame.add_child(name, position._binding_structure, orientation._binding_structure)
         return Frame._from_rust(binding_frame)
 
     def calibrate_child(
-        self, name: str, desired_position: Position, desired_orientation: RPY | Quaternion, reference_pose: Pose
+        self, name: str, desired_position: Vector3, desired_orientation: Rotation, reference_pose: Pose
     ) -> Frame:
         """Adds a child frame such that a reference pose, expressed in the new frame, matches the desired isometry.
 
@@ -70,9 +67,6 @@ class Frame:
         Raises:
             ValueError: If a child with the same name already exists.
         """
-        if isinstance(desired_orientation, RPY):
-            desired_orientation = desired_orientation.to_quaternion()
-
         binding_frame = self._core_frame.calibrate_child(
             name,
             desired_position._binding_structure,
@@ -81,7 +75,7 @@ class Frame:
         )
         return Frame._from_rust(binding_frame)
 
-    def add_pose(self, position: Position, orientation: RPY | Quaternion) -> Pose:
+    def add_pose(self, position: Vector3, orientation: Rotation) -> Pose:
         """Adds a pose to the current frame.
 
         Args:
@@ -91,29 +85,26 @@ class Frame:
         Returns:
             The newly created pose.
         """
-        if isinstance(orientation, RPY):
-            orientation = orientation.to_quaternion()
-
         binding_pose = self._core_frame.add_pose(position._binding_structure, orientation._binding_structure)
         return Pose._from_rust(binding_pose)
 
-    def transformation_to_parent(self) -> tuple[Position, Quaternion]:
+    def transformation_to_parent(self) -> tuple[Vector3, Rotation]:
         """Returns the transformation from this frame to its parent frame.
 
         Returns:
-            The transformation from this frame to its parent frame (Position, Quaternion(x, y, z, w)).
+            The transformation from this frame to its parent frame (translation, rotation).
 
         Raises:
             ValueError: If the frame has no parent.
         """
-        binding_position, binding_quat = self._core_frame.transformation_to_parent()
+        binding_translation, binding_rotation = self._core_frame.transformation_to_parent()
         return (
-            Position(*binding_position.to_tuple()),
-            Quaternion(*binding_quat.to_tuple()),
+            Vector3(*binding_translation.to_tuple()),
+            Rotation._from_rust(binding_rotation),
         )
 
-    def update_transformation(self, position: Position, orientation: RPY | Quaternion) -> None:
-        """Updates the frames transformation relative to its parent.
+    def set(self, position: Vector3, orientation: Rotation) -> None:
+        """Sets the frames transformation relative to its parent.
 
         Args:
             position: The translational offset from the parent.
@@ -122,9 +113,7 @@ class Frame:
         Raises:
             ValueError: If the frame has no parent or invalid dimensions.
         """
-        if isinstance(orientation, RPY):
-            orientation = orientation.to_quaternion()
-        self._core_frame.update_transformation(position._binding_structure, orientation._binding_structure)
+        self._core_frame.set(position._binding_structure, orientation._binding_structure)
 
     def to_json(self) -> str:
         """Serializes the frame tree to a JSON string.
@@ -206,28 +195,26 @@ class Pose:
         """Returns the frame of the pose."""
         return Frame._from_rust(self._core_pose.frame())
 
-    def transformation(self) -> tuple[Position, Quaternion]:
+    def transformation(self) -> tuple[Vector3, Rotation]:
         """Returns the transformation of the pose to its parent frame.
 
         Returns:
-            The transformation from this frame to its parent frame (position, quaternion(x, y, z, w)).
+            The transformation from this frame to its parent frame (translation, rotation).
         """
-        binding_position, binding_quat = self._core_pose.transformation()
+        binding_translation, binding_rotation = self._core_pose.transformation()
         return (
-            Position(*binding_position.to_tuple()),
-            Quaternion(*binding_quat.to_tuple()),
+            Vector3(*binding_translation.to_tuple()),
+            Rotation._from_rust(binding_rotation),
         )
 
-    def update(self, position: Position, orientation: RPY | Quaternion) -> None:
-        """Updates the pose's transformation.
+    def set(self, position: Vector3, orientation: Rotation) -> None:
+        """Sets the pose's transformation.
 
         Args:
             position: The translational part of the pose.
             orientation: The orientational part of the pose.
         """
-        if isinstance(orientation, RPY):
-            orientation = orientation.to_quaternion()
-        self._core_pose.update(position._binding_structure, orientation._binding_structure)
+        self._core_pose.set(position._binding_structure, orientation._binding_structure)
 
     def in_frame(self, target_frame: Frame) -> Pose:
         """Transforms this pose into the coordinate system of the given target frame.
