@@ -29,5 +29,6 @@ fn cartesian_tree(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<bindings::pose::PyPose>()?;
     m.add_class::<bindings::utils::PyVector3>()?;
     m.add_class::<bindings::utils::PyRotation>()?;
+    m.add_class::<bindings::utils::PyIsometry>()?;
     Ok(())
 }

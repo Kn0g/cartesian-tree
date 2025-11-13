@@ -85,9 +85,9 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (position, orientation))]
-    fn update_transformation(&self, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
+    fn set(&self, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
         self.rust_frame
-            .update_transform(position.inner, orientation.rust_rotation)?;
+            .set(position.inner, orientation.rust_rotation)?;
         Ok(())
     }
 

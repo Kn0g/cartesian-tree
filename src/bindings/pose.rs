@@ -35,9 +35,9 @@ impl PyPose {
     }
 
     #[pyo3(signature = (position, orientation))]
-    fn update(&mut self, position: PyVector3, orientation: PyRotation) {
+    fn set(&mut self, position: PyVector3, orientation: PyRotation) {
         self.rust_pose
-            .update(position.inner, orientation.rust_rotation);
+            .set(position.inner, orientation.rust_rotation);
     }
 
     #[pyo3(signature = (target_frame))]

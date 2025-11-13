@@ -63,7 +63,7 @@ impl Pose {
         self.transform_to_parent
     }
 
-    /// Updates the pose's transformation relative to its parent.
+    /// Sets the pose's transformation relative to its parent.
     ///
     /// # Arguments
     /// - `position`: A 3D vector representing the new translational offset from the parent.
@@ -76,13 +76,32 @@ impl Pose {
     ///
     /// let root = Frame::new_origin("root");
     /// let mut pose = root.add_pose(Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity());
-    /// pose.update(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity());
+    /// pose.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity());
     /// ```
-    pub fn update(&mut self, position: Vector3<f64>, orientation: impl Into<Rotation>) {
+    pub fn set(&mut self, position: Vector3<f64>, orientation: impl Into<Rotation>) {
         self.transform_to_parent = Isometry3::from_parts(
             Translation3::from(position),
             orientation.into().as_quaternion(),
         );
+    }
+
+    /// Applies the provided isometry to the pose.
+    ///
+    /// # Arguments
+    /// - `position`: A 3D vector representing the new translational offset from the parent.
+    /// - `orientation`: An orientation convertible into a unit quaternion for new orientational offset from the parent.
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Isometry3, Translation3, Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let mut pose = root.add_pose(Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity());
+    /// pose.apply(&Isometry3::from_parts(Translation3::new(1.0, 0.0, 0.0), UnitQuaternion::identity()));
+    /// ```
+    pub fn apply(&mut self, isometry: &Isometry3<f64>) {
+        self.transform_to_parent = isometry * self.transform_to_parent;
     }
 
     /// Transforms this pose into the coordinate system of the given target frame.

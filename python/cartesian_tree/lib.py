@@ -103,8 +103,8 @@ class Frame:
             Rotation._from_rust(binding_rotation),
         )
 
-    def update_transformation(self, position: Vector3, orientation: Rotation) -> None:
-        """Updates the frames transformation relative to its parent.
+    def set(self, position: Vector3, orientation: Rotation) -> None:
+        """Sets the frames transformation relative to its parent.
 
         Args:
             position: The translational offset from the parent.
@@ -113,7 +113,7 @@ class Frame:
         Raises:
             ValueError: If the frame has no parent or invalid dimensions.
         """
-        self._core_frame.update_transformation(position._binding_structure, orientation._binding_structure)
+        self._core_frame.set(position._binding_structure, orientation._binding_structure)
 
     def to_json(self) -> str:
         """Serializes the frame tree to a JSON string.
@@ -207,14 +207,14 @@ class Pose:
             Rotation._from_rust(binding_rotation),
         )
 
-    def update(self, position: Vector3, orientation: Rotation) -> None:
-        """Updates the pose's transformation.
+    def set(self, position: Vector3, orientation: Rotation) -> None:
+        """Sets the pose's transformation.
 
         Args:
             position: The translational part of the pose.
             orientation: The orientational part of the pose.
         """
-        self._core_pose.update(position._binding_structure, orientation._binding_structure)
+        self._core_pose.set(position._binding_structure, orientation._binding_structure)
 
     def in_frame(self, target_frame: Frame) -> Pose:
         """Transforms this pose into the coordinate system of the given target frame.
