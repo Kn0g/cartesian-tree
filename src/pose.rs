@@ -1,9 +1,11 @@
 use crate::CartesianTreeError;
 use crate::frame::{Frame, FrameData};
+use crate::lazy_access::{LazyRotation, LazyTranslation};
 use crate::rotation::Rotation;
 use crate::tree::Walking;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use std::cell::RefCell;
+use std::ops::{Add, Mul, Sub};
 use std::rc::Weak;
 
 /// Use [`Frame::add_pose`] to create a new pose.
@@ -164,5 +166,47 @@ impl Pose {
             parent: target.downgrade(),
             transform_to_parent: tf_down.inverse() * tf_up,
         })
+    }
+}
+
+impl Add<LazyTranslation> for &Pose {
+    type Output = Pose;
+
+    fn add(self, rhs: LazyTranslation) -> Self::Output {
+        let parent = self.frame().unwrap();
+        let mut new_pose = parent.add_pose(
+            self.transform_to_parent.translation.vector,
+            self.transform_to_parent.rotation,
+        );
+        new_pose.apply_in_parent_frame(&rhs.inner);
+        new_pose
+    }
+}
+
+impl Sub<LazyTranslation> for &Pose {
+    type Output = Pose;
+
+    fn sub(self, rhs: LazyTranslation) -> Self::Output {
+        let parent = self.frame().unwrap();
+        let mut new_pose = parent.add_pose(
+            self.transform_to_parent.translation.vector,
+            self.transform_to_parent.rotation,
+        );
+        new_pose.apply_in_parent_frame(&rhs.inner.inverse());
+        new_pose
+    }
+}
+
+impl Mul<LazyRotation> for &Pose {
+    type Output = Pose;
+
+    fn mul(self, rhs: LazyRotation) -> Self::Output {
+        let parent = self.frame().unwrap();
+        let mut new_pose = parent.add_pose(
+            self.transform_to_parent.translation.vector,
+            self.transform_to_parent.rotation,
+        );
+        new_pose.apply_in_local_frame(&rhs.inner);
+        new_pose
     }
 }

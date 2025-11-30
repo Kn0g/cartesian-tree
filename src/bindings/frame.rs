@@ -4,6 +4,7 @@ use crate::{
     Frame as RustFrame,
     bindings::{
         PyPose,
+        lazy_access::{PyLazyRotation, PyLazyTranslation},
         utils::{PyIsometry, PyRotation, PyVector3},
     },
     tree::{HasChildren, HasParent, Walking},
@@ -134,6 +135,27 @@ impl PyFrame {
             .into_iter()
             .map(|rf| Self { rust_frame: rf })
             .collect()
+    }
+
+    fn __add__(&self, other: PyLazyTranslation) -> Self {
+        let new_rust_frame = &self.rust_frame + other.inner;
+        Self {
+            rust_frame: new_rust_frame,
+        }
+    }
+
+    fn __sub__(&self, other: PyLazyTranslation) -> Self {
+        let new_rust_frame = &self.rust_frame - other.inner;
+        Self {
+            rust_frame: new_rust_frame,
+        }
+    }
+
+    fn __mul__(&self, other: PyLazyRotation) -> Self {
+        let new_rust_frame = &self.rust_frame * other.inner;
+        Self {
+            rust_frame: new_rust_frame,
+        }
     }
 
     fn __str__(&self) -> String {
