@@ -4,6 +4,7 @@ use crate::{
     Pose as RustPose,
     bindings::{
         PyFrame,
+        lazy_access::{PyLazyRotation, PyLazyTranslation},
         utils::{PyIsometry, PyRotation, PyVector3},
     },
 };
@@ -56,6 +57,27 @@ impl PyPose {
         Ok(Self {
             rust_pose: new_rust_pose,
         })
+    }
+
+    fn __add__(&self, other: PyLazyTranslation) -> Self {
+        let new_rust_pose = &self.rust_pose + other.inner;
+        Self {
+            rust_pose: new_rust_pose,
+        }
+    }
+
+    fn __sub__(&self, other: PyLazyTranslation) -> Self {
+        let new_rust_pose = &self.rust_pose - other.inner;
+        Self {
+            rust_pose: new_rust_pose,
+        }
+    }
+
+    fn __mul__(&self, other: PyLazyRotation) -> Self {
+        let new_rust_pose = &self.rust_pose * other.inner;
+        Self {
+            rust_pose: new_rust_pose,
+        }
     }
 
     fn __str__(&self) -> String {
