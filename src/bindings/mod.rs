@@ -1,4 +1,5 @@
 pub mod frame;
+pub mod lazy_access;
 pub mod pose;
 pub mod utils;
 

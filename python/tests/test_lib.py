@@ -1,10 +1,10 @@
 """Contains unit tests for the library."""
 
-from math import radians
+from math import pi, radians
 
 import pytest
 
-from cartesian_tree import Frame, Isometry, Pose, Rotation, Vector3
+from cartesian_tree import Frame, Isometry, Pose, Rotation, Vector3, rz, y, z
 
 
 def test_create_root_frame() -> None:
@@ -230,3 +230,69 @@ def test_serialization() -> None:
     assert position.as_tuple() == pytest.approx((1.0, 0.0, 0.0), abs=1e-5)  # Updated back to '1'
     position, _ = default_child2.transformation_to_parent()
     assert position.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)  # Updated back to '1'
+
+
+def test_lazy_translation_frame() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+
+    result = child + z(5.0)
+    pos, rot = result.transformation_to_parent()
+    assert pos.as_tuple() == pytest.approx((0.0, 0.0, 5.0), abs=1e-10)
+    pos, rot = child.transformation_to_parent()
+    assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+    result = result - y(3.0)
+    pos, rot = result.transformation_to_parent()
+    assert pos.as_tuple() == pytest.approx((0.0, -3.0, 5.0), abs=1e-10)
+
+    roll, pitch, yaw = rot.as_rpy().as_tuple()
+    assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+
+def test_lazy_rotation_frame() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+    result = child * rz(pi / 4)
+
+    pos, rot = result.transformation_to_parent()
+    roll, pitch, yaw = rot.as_rpy().as_tuple()
+    assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, pi / 4), abs=1e-10)
+    assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+    pos, rot = child.transformation_to_parent()
+    roll, pitch, yaw = rot.as_rpy().as_tuple()
+    assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+
+def test_lazy_translation_pose() -> None:
+    root = Frame("root")
+    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+
+    result = pose + z(5.0)
+    pos, rot = result.transformation()
+    assert pos.as_tuple() == pytest.approx((0.0, 0.0, 5.0), abs=1e-10)
+    pos, rot = pose.transformation()
+    assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+    result = result - y(3.0)
+    pos, rot = result.transformation()
+    assert pos.as_tuple() == pytest.approx((0.0, -3.0, 5.0), abs=1e-10)
+
+    roll, pitch, yaw = rot.as_rpy().as_tuple()
+    assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+
+def test_lazy_rotation_pose() -> None:
+    root = Frame("root")
+    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+    result = pose * rz(pi / 4)
+
+    pos, rot = result.transformation()
+    roll, pitch, yaw = rot.as_rpy().as_tuple()
+    assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, pi / 4), abs=1e-10)
+    assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+    pos, rot = pose.transformation()
+    roll, pitch, yaw = rot.as_rpy().as_tuple()
+    assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)

@@ -1,5 +1,7 @@
 use crate::CartesianTreeError;
 use crate::Pose;
+use crate::lazy_access::LazyRotation;
+use crate::lazy_access::LazyTranslation;
 use crate::rotation::Rotation;
 use crate::tree::Walking;
 use crate::tree::{HasChildren, HasParent, NodeEquality};
@@ -7,10 +9,14 @@ use crate::tree::{HasChildren, HasParent, NodeEquality};
 use nalgebra::UnitQuaternion;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use std::cell::RefCell;
+use std::ops::Add;
+use std::ops::Mul;
+use std::ops::Sub;
 use std::rc::{Rc, Weak};
 
 use serde::{Deserialize, Serialize};
 use serde_json;
+use uuid::Uuid;
 
 /// Represents a coordinate frame in a Cartesian tree structure.
 ///
@@ -495,6 +501,51 @@ impl Frame {
     }
 }
 
+impl Add<LazyTranslation> for &Frame {
+    type Output = Frame;
+
+    fn add(self, rhs: LazyTranslation) -> Self::Output {
+        let auto_name = Uuid::new_v4().to_string();
+        let current_position = self.borrow().transform_to_parent.translation.vector;
+        let current_orientation = self.borrow().transform_to_parent.rotation;
+        let child = self
+            .add_child(auto_name, current_position, current_orientation)
+            .unwrap();
+        child.apply_in_parent_frame(&rhs.inner).unwrap();
+        child // Not sure yet what to do with errors
+    }
+}
+
+impl Sub<LazyTranslation> for &Frame {
+    type Output = Frame;
+
+    fn sub(self, rhs: LazyTranslation) -> Self::Output {
+        let auto_name = Uuid::new_v4().to_string();
+        let current_position = self.borrow().transform_to_parent.translation.vector;
+        let current_orientation = self.borrow().transform_to_parent.rotation;
+        let child = self
+            .add_child(auto_name, current_position, current_orientation)
+            .unwrap();
+        child.apply_in_parent_frame(&rhs.inner.inverse()).unwrap();
+        child // Not sure yet what to do with errors
+    }
+}
+
+impl Mul<LazyRotation> for &Frame {
+    type Output = Frame;
+
+    fn mul(self, rhs: LazyRotation) -> Self::Output {
+        let auto_name = Uuid::new_v4().to_string();
+        let current_position = self.borrow().transform_to_parent.translation.vector;
+        let current_orientation = self.borrow().transform_to_parent.rotation;
+        let child = self
+            .add_child(auto_name, current_position, current_orientation)
+            .unwrap();
+        child.apply_in_local_frame(&rhs.inner).unwrap();
+        child // Not sure yet what to do with errors
+    }
+}
+
 impl HasParent for Frame {
     type Node = Self;
 
@@ -521,6 +572,8 @@ impl HasChildren for Frame {
 
 #[cfg(test)]
 mod tests {
+    use crate::lazy_access::{rz, y, z};
+
     use super::*;
     use approx::assert_relative_eq;
     use nalgebra::{UnitQuaternion, Vector3};
@@ -997,5 +1050,145 @@ mod tests {
         }
         "#;
         assert!(default_root.apply_config(mismatch_json).is_err());
+    }
+
+    #[test]
+    fn test_lazy_translation_frame() {
+        use nalgebra::UnitQuaternion;
+
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child(
+                "child",
+                Vector3::new(0.0, 0.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+
+        let result = &child + z(5.0);
+        assert_relative_eq!(
+            result.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(0.0, 0.0, 5.0),
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            child.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        let result = &result - y(3.0);
+        assert_relative_eq!(
+            result.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(0.0, -3.0, 5.0),
+            epsilon = 1e-10
+        );
+
+        let (roll, pitch, yaw) = result
+            .transform_to_parent()
+            .unwrap()
+            .rotation
+            .euler_angles();
+        assert_relative_eq!(
+            Vector3::new(roll, pitch, yaw),
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_lazy_rotation_frame() {
+        use nalgebra::UnitQuaternion;
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child(
+                "child",
+                Vector3::new(0.0, 0.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+        let result = &child * rz(std::f64::consts::FRAC_PI_4);
+
+        let (roll, pitch, yaw) = result
+            .transform_to_parent()
+            .unwrap()
+            .rotation
+            .euler_angles();
+        assert_relative_eq!(
+            Vector3::new(roll, pitch, yaw),
+            Vector3::new(0.0, 0.0, std::f64::consts::FRAC_PI_4),
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            result.transform_to_parent().unwrap().translation.vector,
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+        let (roll, pitch, yaw) = child.transform_to_parent().unwrap().rotation.euler_angles();
+        assert_relative_eq!(
+            Vector3::new(roll, pitch, yaw),
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_lazy_translation_pose() {
+        use nalgebra::UnitQuaternion;
+
+        let root = Frame::new_origin("root");
+        let pose = root.add_pose(Vector3::new(0.0, 0.0, 0.0), UnitQuaternion::identity());
+
+        let result = &pose + z(5.0);
+        assert_relative_eq!(
+            result.transformation().translation.vector,
+            Vector3::new(0.0, 0.0, 5.0),
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            pose.transformation().translation.vector,
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        let result = &result - y(3.0);
+        assert_relative_eq!(
+            result.transformation().translation.vector,
+            Vector3::new(0.0, -3.0, 5.0),
+            epsilon = 1e-10
+        );
+
+        let (roll, pitch, yaw) = result.transformation().rotation.euler_angles();
+        assert_relative_eq!(
+            Vector3::new(roll, pitch, yaw),
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_lazy_rotation_pose() {
+        use nalgebra::UnitQuaternion;
+        let root = Frame::new_origin("root");
+        let pose = root.add_pose(Vector3::new(0.0, 0.0, 0.0), UnitQuaternion::identity());
+        let result = &pose * rz(std::f64::consts::FRAC_PI_4);
+
+        let (roll, pitch, yaw) = result.transformation().rotation.euler_angles();
+        assert_relative_eq!(
+            Vector3::new(roll, pitch, yaw),
+            Vector3::new(0.0, 0.0, std::f64::consts::FRAC_PI_4),
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            result.transformation().translation.vector,
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+        let (roll, pitch, yaw) = pose.transformation().rotation.euler_angles();
+        assert_relative_eq!(
+            Vector3::new(roll, pitch, yaw),
+            Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
     }
 }

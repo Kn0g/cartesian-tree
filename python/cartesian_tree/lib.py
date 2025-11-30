@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base_types import Isometry, Rotation, Vector3
 from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
+
+if TYPE_CHECKING:
+    from .lazy_access import LazyRotation, LazyTranslation
 
 
 class Frame:
@@ -193,6 +196,15 @@ class Frame:
         """
         return [Frame._from_rust(binding_child) for binding_child in self._core_frame.children()]
 
+    def __add__(self, lazy_access: LazyTranslation) -> Frame:
+        return Frame._from_rust(self._core_frame + lazy_access.inner)
+
+    def __sub__(self, lazy_access: LazyTranslation) -> Frame:
+        return Frame._from_rust(self._core_frame - lazy_access.inner)
+
+    def __mul__(self, lazy_access: LazyRotation) -> Frame:
+        return Frame._from_rust(self._core_frame * lazy_access.inner)
+
     def __str__(self) -> str:
         return self._core_frame.__str__()
 
@@ -282,6 +294,15 @@ class Pose:
         instance = cls.__new__(cls)
         instance._core_pose = rust_pose
         return instance
+
+    def __add__(self, lazy_access: LazyTranslation) -> Pose:
+        return Pose._from_rust(self._core_pose + lazy_access.inner)
+
+    def __sub__(self, lazy_access: LazyTranslation) -> Pose:
+        return Pose._from_rust(self._core_pose - lazy_access.inner)
+
+    def __mul__(self, lazy_access: LazyRotation) -> Pose:
+        return Pose._from_rust(self._core_pose * lazy_access.inner)
 
     def __str__(self) -> str:
         return self._core_pose.__str__()
