@@ -18,6 +18,13 @@ class RPY:
         """
         self._core_rotation = _core.Rotation.from_rpy(roll, pitch, yaw)
 
+    @classmethod
+    def identity(cls) -> RPY:
+        """Initializes the identity RPY angles."""
+        instance = cls.__new__(cls)
+        instance._core_rotation = _core.Rotation.from_rpy(0.0, 0.0, 0.0)
+        return instance
+
     @property
     def roll(self) -> float:
         """The roll angle in radians."""

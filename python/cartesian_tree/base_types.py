@@ -100,6 +100,15 @@ class Vector3:
         """
         self._core_vector = _core.Vector3(x, y, z)
 
+    @classmethod
+    def zeros(cls) -> Vector3:
+        """Initializes the zero vector.
+
+        Returns:
+            The zero vector.
+        """
+        return cls(0.0, 0.0, 0.0)
+
     @property
     def x(self) -> float:
         """The x value."""
@@ -149,7 +158,11 @@ class Isometry:
 
     @classmethod
     def identity(cls) -> Isometry:
-        """Initializes the identity isometry."""
+        """Initializes the identity isometry.
+
+        This isometry applies the rotation R with its axis passing through the point P.
+        This effectively lets P invariant.
+        """
         instance = cls.__new__(cls)
         instance._core_isometry = _core.Isometry.identity()
         return instance

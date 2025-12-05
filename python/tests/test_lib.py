@@ -101,7 +101,7 @@ def test_apply_in_parent_frame() -> None:
 
 def test_apply_in_local_frame() -> None:
     root = Frame("root")
-    position = Vector3(0.0, 0.0, 0.0)
+    position = Vector3.zeros()
     orientation = Rotation.from_rpy(0.0, 0.0, radians(90))
     child = root.add_child("child", position, orientation)
 
@@ -144,7 +144,7 @@ def test_pose_apply_in_parent_frame() -> None:
 
 def test_pose_apply_in_local_frame() -> None:
     root = Frame("root")
-    position = Vector3(0.0, 0.0, 0.0)
+    position = Vector3.zeros()
     orientation = Rotation.from_rpy(0.0, 0.0, radians(90))
     pose = root.add_pose(position, orientation)
     # Update transformation
@@ -273,7 +273,7 @@ def test_lazy_rotation_frame() -> None:
 
 def test_lazy_translation_pose() -> None:
     root = Frame("root")
-    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.identity())
+    pose = root.add_pose(Vector3.zeros(), Rotation.identity())
 
     result = pose + z(5.0)
     pos, rot = result.transformation()
@@ -291,7 +291,7 @@ def test_lazy_translation_pose() -> None:
 
 def test_lazy_rotation_pose() -> None:
     root = Frame("root")
-    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.identity())
+    pose = root.add_pose(Vector3.zeros(), Rotation.identity())
     result = pose * rz(pi / 4)
 
     pos, rot = result.transformation()
