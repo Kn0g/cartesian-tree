@@ -35,6 +35,20 @@ impl PyPose {
         )
     }
 
+    #[getter]
+    const fn position(&self) -> PyVector3 {
+        PyVector3 {
+            inner: self.rust_pose.position(),
+        }
+    }
+
+    #[getter]
+    fn orientation(&self) -> PyRotation {
+        PyRotation {
+            rust_rotation: self.rust_pose.orientation(),
+        }
+    }
+
     #[pyo3(signature = (position, orientation))]
     fn set(&mut self, position: PyVector3, orientation: PyRotation) {
         self.rust_pose
