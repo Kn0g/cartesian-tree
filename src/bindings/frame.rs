@@ -73,8 +73,8 @@ impl PyFrame {
         PyPose { rust_pose }
     }
 
-    fn transformation_to_parent(&self) -> PyResult<(PyVector3, PyRotation)> {
-        let isometry = self.rust_frame.transform_to_parent()?;
+    fn transformation(&self) -> PyResult<(PyVector3, PyRotation)> {
+        let isometry = self.rust_frame.transformation()?;
         Ok((
             PyVector3 {
                 inner: isometry.translation.vector,
