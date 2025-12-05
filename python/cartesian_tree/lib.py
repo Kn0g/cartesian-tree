@@ -36,6 +36,18 @@ class Frame:
         """The depth from the frame to its root."""
         return self._core_frame.depth
 
+    @property
+    def position(self) -> Vector3:
+        """The position of the frame relative to its parent."""
+        binding_position = self._core_frame.position
+        return Vector3(*binding_position.to_tuple())
+
+    @property
+    def orientation(self) -> Rotation:
+        """The orientation of the frame relative to its parent."""
+        binding_orientation = self._core_frame.orientation
+        return Rotation._from_rust(binding_orientation)
+
     def add_child(self, name: str, position: Vector3, orientation: Rotation) -> Frame:
         """Adds a new child frame to the current frame.
 
@@ -242,6 +254,18 @@ class Pose:
             Vector3(*binding_position.to_tuple()),
             Rotation._from_rust(binding_rotation),
         )
+
+    @property
+    def position(self) -> Vector3:
+        """The position of the pose."""
+        binding_position = self._core_pose.position
+        return Vector3(*binding_position.to_tuple())
+
+    @property
+    def orientation(self) -> Rotation:
+        """The orientation of the pose."""
+        binding_orientation = self._core_pose.orientation
+        return Rotation._from_rust(binding_orientation)
 
     def set(self, position: Vector3, orientation: Rotation) -> None:
         """Sets the pose's transformation.

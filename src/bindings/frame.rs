@@ -85,6 +85,20 @@ impl PyFrame {
         ))
     }
 
+    #[getter]
+    fn position(&self) -> PyVector3 {
+        PyVector3 {
+            inner: self.rust_frame.position(),
+        }
+    }
+
+    #[getter]
+    fn orientation(&self) -> PyRotation {
+        PyRotation {
+            rust_rotation: self.rust_frame.orientation(),
+        }
+    }
+
     #[pyo3(signature = (position, orientation))]
     fn set(&self, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
         self.rust_frame

@@ -65,6 +65,9 @@ def test_transformation_to_parent_and_update() -> None:
     assert isinstance(orig_pos, Vector3)
     assert isinstance(orig_quat, Rotation)
 
+    assert child.position.as_tuple() == pytest.approx((1.0, 2.0, 3.0), abs=1e-5)
+    assert child.orientation.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-5)
+
     # Update transformation
     new_position = Vector3(5.0, 6.0, 7.0)
     new_orientation = Rotation.from_quaternion(0.0, 0.7071, 0.0, 0.7071)
@@ -170,6 +173,9 @@ def test_add_pose_and_update() -> None:
     p_position, p_orientation = pose.transformation()
     assert p_position.as_tuple() == pytest.approx((1.0, 2.0, 3.0), abs=1e-5)
     assert p_orientation.as_quaternion().as_tuple() == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-5)
+
+    assert pose.position.as_tuple() == pytest.approx((1.0, 2.0, 3.0), abs=1e-5)
+    assert pose.orientation.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-5)
 
     # Update the pose
     new_position = Vector3(4.0, 5.0, 6.0)

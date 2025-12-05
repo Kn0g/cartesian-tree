@@ -135,6 +135,24 @@ impl Frame {
         Ok(self.borrow().transform_to_parent)
     }
 
+    /// Returns the position of this frame relative to its parent frame.
+    ///
+    /// # Returns
+    /// The position of the frame in its parent frame.
+    #[must_use]
+    pub fn position(&self) -> Vector3<f64> {
+        self.borrow().transform_to_parent.translation.vector
+    }
+
+    /// Returns the orientation of this frame relative to its parent frame.
+    ///
+    /// # Returns
+    /// The orientation of the frame in its parent frame.
+    #[must_use]
+    pub fn orientation(&self) -> Rotation {
+        self.borrow().transform_to_parent.rotation.into()
+    }
+
     /// Sets the frame's transformation relative to its parent.
     ///
     /// This method modifies the frame's position and orientation relative to its parent frame.
@@ -637,6 +655,28 @@ mod tests {
     }
 
     #[test]
+    fn test_child_frame_transform_to_parent() {
+        let root = Frame::new_origin("world");
+        let child = root
+            .add_child(
+                "dummy",
+                Vector3::new(0.0, 0.0, 1.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+
+        let transform = child.transform_to_parent().unwrap();
+        assert_eq!(transform.translation.vector, Vector3::new(0.0, 0.0, 1.0));
+        assert_eq!(transform.rotation, UnitQuaternion::identity());
+
+        assert_eq!(child.position(), Vector3::new(0.0, 0.0, 1.0));
+        assert_eq!(
+            child.orientation().as_quaternion(),
+            UnitQuaternion::identity()
+        );
+    }
+
+    #[test]
     fn multiple_child_frames() {
         let root = Frame::new_origin("world");
 
@@ -893,6 +933,25 @@ mod tests {
         assert!(
             root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn test_pose_transform_to_parent() {
+        let root = Frame::new_origin("root");
+        let pose = root.add_pose(Vector3::new(1.0, 2.0, 3.0), UnitQuaternion::identity());
+
+        let transformation = pose.transformation();
+        assert_eq!(
+            transformation.translation.vector,
+            Vector3::new(1.0, 2.0, 3.0)
+        );
+        assert_eq!(transformation.rotation, UnitQuaternion::identity());
+
+        assert_eq!(pose.position(), Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(
+            pose.orientation().as_quaternion(),
+            UnitQuaternion::identity()
         );
     }
 
