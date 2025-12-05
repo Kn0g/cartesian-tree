@@ -33,6 +33,13 @@ impl PyRotation {
         }
     }
 
+    #[classmethod]
+    fn identity(_cls: &Bound<'_, PyType>) -> Self {
+        Self {
+            rust_rotation: Rotation::identity(),
+        }
+    }
+
     #[allow(clippy::wrong_self_convention)]
     fn as_quaternion(&self) -> (f64, f64, f64, f64) {
         let quat = self.rust_rotation.as_quaternion();
