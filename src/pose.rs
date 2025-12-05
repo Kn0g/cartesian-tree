@@ -65,6 +65,22 @@ impl Pose {
         self.transform_to_parent
     }
 
+    /// Returns the position of this pose relative to its parent frame.
+    /// # Returns
+    /// The position of the pose in its parent frame.
+    #[must_use]
+    pub const fn position(&self) -> Vector3<f64> {
+        self.transform_to_parent.translation.vector
+    }
+
+    /// Returns the orientation of this pose relative to its parent frame.
+    /// # Returns
+    /// The orientation of the pose in its parent frame.
+    #[must_use]
+    pub fn orientation(&self) -> Rotation {
+        self.transform_to_parent.rotation.into()
+    }
+
     /// Sets the pose's transformation relative to its parent.
     ///
     /// # Arguments
