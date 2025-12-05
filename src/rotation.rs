@@ -22,6 +22,12 @@ impl Rotation {
         Self::Rpy(Vector3::new(roll, pitch, yaw))
     }
 
+    /// Creates the identity rotation using the identity quaternion.
+    #[must_use]
+    pub fn identity() -> Self {
+        Self::Quaternion(UnitQuaternion::identity())
+    }
+
     /// Converts this rotation to a `UnitQuaternion`.
     #[must_use]
     pub fn as_quaternion(&self) -> UnitQuaternion<f64> {

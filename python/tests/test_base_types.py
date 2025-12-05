@@ -41,6 +41,12 @@ def test_rotation_from_quaternion() -> None:
     assert quaternion.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, radians(90.0)), abs=1e-5)
 
 
+def test_rotation_identity() -> None:
+    identity = Rotation.identity()
+    assert identity.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-5)
+    assert identity.as_quaternion().as_tuple() == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-5)
+
+
 def test_build_isometry() -> None:
     isometry = Isometry.identity()
     assert isometry.translation().as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-5)

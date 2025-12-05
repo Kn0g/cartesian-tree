@@ -47,6 +47,13 @@ class Rotation:
         instance._core_rotation = _core.Rotation.from_rpy(roll, pitch, yaw)
         return instance
 
+    @classmethod
+    def identity(cls) -> Rotation:
+        """Initializes the identity rotation."""
+        instance = cls.__new__(cls)
+        instance._core_rotation = _core.Rotation.identity()
+        return instance
+
     def as_quaternion(self) -> Quaternion:
         """Converts the rotation to quaternion.
 

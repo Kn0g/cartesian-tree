@@ -17,7 +17,7 @@ def test_create_root_frame() -> None:
 def test_tree_structure() -> None:
     frame = Frame("root")
     position = Vector3(1.0, 2.0, 3.0)
-    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    orientation = Rotation.identity()
     child = frame.add_child("child", position, orientation)
     grandchild = child.add_child("grandchild", position, orientation)
     assert grandchild.depth == 2
@@ -30,7 +30,7 @@ def test_tree_structure() -> None:
 def test_add_child_frame_with_quaternion() -> None:
     root = Frame("base")
     position = Vector3(1.0, 2.0, 3.0)
-    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    orientation = Rotation.identity()
     child = root.add_child("child", position, orientation)
 
     assert isinstance(child, Frame)
@@ -58,7 +58,7 @@ def test_add_child_frame_with_rpy() -> None:
 def test_transformation_and_update() -> None:
     root = Frame("root")
     position = Vector3(1.0, 2.0, 3.0)
-    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    orientation = Rotation.identity()
     child = root.add_child("child", position, orientation)
 
     orig_pos, orig_quat = child.transformation()
@@ -81,7 +81,7 @@ def test_transformation_and_update() -> None:
 def test_apply_in_parent_frame() -> None:
     root = Frame("root")
     position = Vector3(1.0, 0.0, 1.0)
-    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    orientation = Rotation.identity()
     child = root.add_child("child", position, orientation)
 
     # Update transformation
@@ -124,7 +124,7 @@ def test_apply_in_local_frame() -> None:
 def test_pose_apply_in_parent_frame() -> None:
     root = Frame("root")
     position = Vector3(1.0, 0.0, 1.0)
-    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    orientation = Rotation.identity()
     pose = root.add_pose(position, orientation)
 
     # Update transformation
@@ -166,7 +166,7 @@ def test_pose_apply_in_local_frame() -> None:
 def test_add_pose_and_update() -> None:
     root = Frame("base")
     position = Vector3(1.0, 2.0, 3.0)
-    orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
+    orientation = Rotation.identity()
     pose = root.add_pose(position, orientation)
 
     assert isinstance(pose, Pose)
@@ -193,10 +193,10 @@ def test_add_pose_and_update() -> None:
 
 def test_pose_in_frame() -> None:
     base = Frame("base")
-    frame_1 = base.add_child("frame1", Vector3(1, 1, 1), Rotation.from_quaternion(0, 0, 0, 1))
+    frame_1 = base.add_child("frame1", Vector3(1, 1, 1), Rotation.identity())
     frame_2 = base.add_child("frame2", Vector3(-2, 0, 0), Rotation.from_rpy(0, 0, radians(90)))
 
-    pose_in_frame1 = frame_1.add_pose(Vector3(0, 0, 0), Rotation.from_quaternion(0, 0, 0, 1))
+    pose_in_frame1 = frame_1.add_pose(Vector3(0, 0, 0), Rotation.identity())
     transformed_pose = pose_in_frame1.in_frame(frame_2)
 
     pos, quat = transformed_pose.transformation()
@@ -207,8 +207,8 @@ def test_pose_in_frame() -> None:
 
 def test_calibrate_frame() -> None:
     base = Frame("base")
-    reference_frame = base.add_child("reference", Vector3(1, 1, 1), Rotation.from_quaternion(0, 0, 0, 1))
-    reference_pose = reference_frame.add_pose(Vector3(1, 1, 1), Rotation.from_quaternion(0, 0, 0, 1))
+    reference_frame = base.add_child("reference", Vector3(1, 1, 1), Rotation.identity())
+    reference_pose = reference_frame.add_pose(Vector3(1, 1, 1), Rotation.identity())
 
     calibrated_frame = base.calibrate_child("calibrated", Vector3(0, 0, 0), Rotation.from_rpy(0, 0, 0), reference_pose)
 
@@ -220,14 +220,14 @@ def test_calibrate_frame() -> None:
 
 def test_serialization() -> None:
     root = Frame("root")
-    child1 = root.add_child("child1", Vector3(1, 0, 0), Rotation.from_quaternion(0, 0, 0, 1))
+    child1 = root.add_child("child1", Vector3(1, 0, 0), Rotation.identity())
     child2 = child1.add_child("child2", Vector3(0, 1, 0), Rotation.from_rpy(0, 0, radians(90)))
-    child2.add_pose(Vector3(0, 0, 1), Rotation.from_quaternion(0, 0, 0, 1))
+    child2.add_pose(Vector3(0, 0, 1), Rotation.identity())
 
     json_str = root.to_json()
 
     default_root = Frame("root")
-    default_child1 = default_root.add_child("child1", Vector3(2, 0, 0), Rotation.from_quaternion(0, 0, 0, 1))
+    default_child1 = default_root.add_child("child1", Vector3(2, 0, 0), Rotation.identity())
     default_child2 = default_child1.add_child("child2", Vector3(0, 2, 0), Rotation.from_rpy(0, 0, radians(90)))
 
     default_root.apply_config(json_str)
@@ -240,7 +240,7 @@ def test_serialization() -> None:
 
 def test_lazy_translation_frame() -> None:
     root = Frame("root")
-    child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+    child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.identity())
 
     result = child + z(5.0)
     pos, rot = result.transformation()
@@ -258,7 +258,7 @@ def test_lazy_translation_frame() -> None:
 
 def test_lazy_rotation_frame() -> None:
     root = Frame("root")
-    child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+    child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.identity())
     result = child * rz(pi / 4)
 
     pos, rot = result.transformation()
@@ -273,7 +273,7 @@ def test_lazy_rotation_frame() -> None:
 
 def test_lazy_translation_pose() -> None:
     root = Frame("root")
-    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.identity())
 
     result = pose + z(5.0)
     pos, rot = result.transformation()
@@ -291,7 +291,7 @@ def test_lazy_translation_pose() -> None:
 
 def test_lazy_rotation_pose() -> None:
     root = Frame("root")
-    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
+    pose = root.add_pose(Vector3(0.0, 0.0, 0.0), Rotation.identity())
     result = pose * rz(pi / 4)
 
     pos, rot = result.transformation()
