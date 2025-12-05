@@ -14,6 +14,14 @@ def test_quaternion_properties() -> None:
     assert q.w == pytest.approx(0.707, abs=1e-3)
 
 
+def test_quaternion_identity() -> None:
+    identity = Quaternion.identity()
+    assert identity.x == 0.0
+    assert identity.y == 0.0
+    assert identity.z == 0.0
+    assert identity.w == 1.0
+
+
 def test_quaternion_vector_part() -> None:
     q = Quaternion(0.0, 0.0, 0.707, 0.707)
     vector = q.vector_part()

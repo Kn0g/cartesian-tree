@@ -21,6 +21,13 @@ class Quaternion:
         """
         self._core_rotation = _core.Rotation.from_quaternion(x, y, z, w)
 
+    @classmethod
+    def identity(cls) -> Quaternion:
+        """Initializes the identity quaternion."""
+        instance = cls.__new__(cls)
+        instance._core_rotation = _core.Rotation.identity()
+        return instance
+
     @property
     def x(self) -> float:
         """The x value."""

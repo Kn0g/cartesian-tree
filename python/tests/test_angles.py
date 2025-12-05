@@ -11,6 +11,13 @@ def test_rpy_properties() -> None:
     assert rpy.yaw == 3.0
 
 
+def test_rpy_identity() -> None:
+    identity = RPY.identity()
+    assert identity.roll == 0.0
+    assert identity.pitch == 0.0
+    assert identity.yaw == 0.0
+
+
 def test_rpy_as_list() -> None:
     rpy = RPY(1.0, 2.0, 3.0)
     rpy_list = rpy.as_list()
