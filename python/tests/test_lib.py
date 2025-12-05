@@ -55,13 +55,13 @@ def test_add_child_frame_with_rpy() -> None:
     assert parent.name == "world"
 
 
-def test_transformation_to_parent_and_update() -> None:
+def test_transformation_and_update() -> None:
     root = Frame("root")
     position = Vector3(1.0, 2.0, 3.0)
     orientation = Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0)
     child = root.add_child("child", position, orientation)
 
-    orig_pos, orig_quat = child.transformation_to_parent()
+    orig_pos, orig_quat = child.transformation()
     assert isinstance(orig_pos, Vector3)
     assert isinstance(orig_quat, Rotation)
 
@@ -73,7 +73,7 @@ def test_transformation_to_parent_and_update() -> None:
     new_orientation = Rotation.from_quaternion(0.0, 0.7071, 0.0, 0.7071)
     child.set(new_position, new_orientation)
 
-    updated_pos, updated_quat = child.transformation_to_parent()
+    updated_pos, updated_quat = child.transformation()
     assert updated_pos.as_tuple() == pytest.approx((5.0, 6.0, 7.0), abs=1e-5)
     assert updated_quat.as_quaternion().as_tuple() == pytest.approx((0.0, 0.7071, 0.0, 0.7071), abs=1e-5)
 
@@ -88,14 +88,14 @@ def test_apply_in_parent_frame() -> None:
     rotation_to_apply = Rotation.from_rpy(0.0, 0.0, radians(90))
     child.apply_in_parent_frame(Isometry.from_rotation(rotation_to_apply))
 
-    updated_pos, _ = child.transformation_to_parent()
+    updated_pos, _ = child.transformation()
     assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 1.0), abs=1e-5)
 
     # Update transformation
     translation_to_apply = Vector3(1.0, 0.0, 1.0)
     child.apply_in_parent_frame(Isometry.from_translation(translation_to_apply))
 
-    updated_pos, _ = child.transformation_to_parent()
+    updated_pos, _ = child.transformation()
     assert updated_pos.as_tuple() == pytest.approx((1.0, 1.0, 2.0), abs=1e-5)
 
 
@@ -109,14 +109,14 @@ def test_apply_in_local_frame() -> None:
     translation_to_apply = Vector3(1.0, 0.0, 0.0)
     child.apply_in_local_frame(Isometry.from_translation(translation_to_apply))
 
-    updated_pos, _ = child.transformation_to_parent()
+    updated_pos, _ = child.transformation()
     assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)
 
     # Update transformation
     rotation_to_apply = Rotation.from_rpy(0.0, 0.0, radians(90))
     child.apply_in_local_frame(Isometry.from_rotation(rotation_to_apply))
 
-    updated_pos, updated_rot = child.transformation_to_parent()
+    updated_pos, updated_rot = child.transformation()
     assert updated_pos.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)
     assert updated_rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, radians(180)), abs=1e-5)
 
@@ -212,7 +212,7 @@ def test_calibrate_frame() -> None:
 
     calibrated_frame = base.calibrate_child("calibrated", Vector3(0, 0, 0), Rotation.from_rpy(0, 0, 0), reference_pose)
 
-    pos, quat = calibrated_frame.transformation_to_parent()
+    pos, quat = calibrated_frame.transformation()
 
     assert pos.as_tuple() == pytest.approx((2.0, 2.0, 2.0), abs=1e-5)
     assert quat.as_quaternion().as_tuple() == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-5)
@@ -232,9 +232,9 @@ def test_serialization() -> None:
 
     default_root.apply_config(json_str)
 
-    position, _ = default_child1.transformation_to_parent()
+    position, _ = default_child1.transformation()
     assert position.as_tuple() == pytest.approx((1.0, 0.0, 0.0), abs=1e-5)  # Updated back to '1'
-    position, _ = default_child2.transformation_to_parent()
+    position, _ = default_child2.transformation()
     assert position.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)  # Updated back to '1'
 
 
@@ -243,13 +243,13 @@ def test_lazy_translation_frame() -> None:
     child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
 
     result = child + z(5.0)
-    pos, rot = result.transformation_to_parent()
+    pos, rot = result.transformation()
     assert pos.as_tuple() == pytest.approx((0.0, 0.0, 5.0), abs=1e-10)
-    pos, rot = child.transformation_to_parent()
+    pos, rot = child.transformation()
     assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
 
     result = result - y(3.0)
-    pos, rot = result.transformation_to_parent()
+    pos, rot = result.transformation()
     assert pos.as_tuple() == pytest.approx((0.0, -3.0, 5.0), abs=1e-10)
 
     roll, pitch, yaw = rot.as_rpy().as_tuple()
@@ -261,12 +261,12 @@ def test_lazy_rotation_frame() -> None:
     child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.from_quaternion(0.0, 0.0, 0.0, 1.0))
     result = child * rz(pi / 4)
 
-    pos, rot = result.transformation_to_parent()
+    pos, rot = result.transformation()
     roll, pitch, yaw = rot.as_rpy().as_tuple()
     assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, pi / 4), abs=1e-10)
     assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
 
-    pos, rot = child.transformation_to_parent()
+    pos, rot = child.transformation()
     roll, pitch, yaw = rot.as_rpy().as_tuple()
     assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
 

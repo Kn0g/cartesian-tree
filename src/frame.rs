@@ -128,7 +128,7 @@ impl Frame {
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - The frame has no parent.
-    pub fn transform_to_parent(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
+    pub fn transformation(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
         if self.parent().is_none() {
             return Err(CartesianTreeError::RootHasNoParent(self.name()));
         }
@@ -454,7 +454,7 @@ impl Frame {
     fn to_serial(&self) -> SerialFrame {
         let (position, orientation) = if self.parent().is_some() {
             let iso = self
-                .transform_to_parent()
+                .transformation()
                 .unwrap_or_else(|_| Isometry3::identity());
             (iso.translation.vector, iso.rotation)
         } else {
@@ -665,7 +665,7 @@ mod tests {
             )
             .unwrap();
 
-        let transform = child.transform_to_parent().unwrap();
+        let transform = child.transformation().unwrap();
         assert_eq!(transform.translation.vector, Vector3::new(0.0, 0.0, 1.0));
         assert_eq!(transform.rotation, UnitQuaternion::identity());
 
@@ -767,7 +767,7 @@ mod tests {
             .set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
             .unwrap();
         assert_eq!(
-            child.transform_to_parent().unwrap().translation.vector,
+            child.transformation().unwrap().translation.vector,
             Vector3::new(1.0, 0.0, 0.0)
         );
 
@@ -796,7 +796,7 @@ mod tests {
             .unwrap();
 
         assert_relative_eq!(
-            child.transform_to_parent().unwrap().translation.vector,
+            child.transformation().unwrap().translation.vector,
             Vector3::new(0.0, 1.0, 1.0),
             epsilon = 1e-10
         );
@@ -808,7 +808,7 @@ mod tests {
             ))
             .unwrap();
         assert_relative_eq!(
-            child.transform_to_parent().unwrap().translation.vector,
+            child.transformation().unwrap().translation.vector,
             Vector3::new(1.0, 1.0, 2.0),
             epsilon = 1e-10
         );
@@ -839,7 +839,7 @@ mod tests {
             .unwrap();
 
         assert_relative_eq!(
-            child.transform_to_parent().unwrap().translation.vector,
+            child.transformation().unwrap().translation.vector,
             Vector3::new(0.0, 1.0, 0.0),
             epsilon = 1e-10
         );
@@ -851,12 +851,12 @@ mod tests {
             ))
             .unwrap();
         assert_relative_eq!(
-            child.transform_to_parent().unwrap().translation.vector,
+            child.transformation().unwrap().translation.vector,
             Vector3::new(0.0, 1.0, 0.0),
             epsilon = 1e-10
         );
 
-        let (roll, pitch, yaw) = child.transform_to_parent().unwrap().rotation.euler_angles();
+        let (roll, pitch, yaw) = child.transformation().unwrap().rotation.euler_angles();
         assert_relative_eq!(roll, 0.0, epsilon = 1e-10);
         assert_relative_eq!(pitch, 0.0, epsilon = 1e-10);
         assert_relative_eq!(yaw, std::f64::consts::PI, epsilon = 1e-10);
@@ -1010,7 +1010,7 @@ mod tests {
         assert!((transformation.rotation.angle() - 0.0).abs() < 1e-6);
 
         // Verify the child's transform matches the reference pose's original transform.
-        let calibrated_transformation = calibrated_frame.transform_to_parent().unwrap();
+        let calibrated_transformation = calibrated_frame.transformation().unwrap();
         assert!(
             (calibrated_transformation.translation.vector - Vector3::new(1.0, 2.0, 3.0)).norm()
                 < 1e-6
@@ -1055,7 +1055,7 @@ mod tests {
             .into_iter()
             .find(|c| c.name() == "child")
             .unwrap();
-        let iso = updated_child.transform_to_parent().unwrap();
+        let iso = updated_child.transformation().unwrap();
         assert_eq!(iso.translation.vector, Vector3::new(1.0, 2.0, 3.0));
         let (r, p, y) = iso.rotation.euler_angles();
         assert!((r - 0.1).abs() < 1e-6);
@@ -1091,11 +1091,7 @@ mod tests {
             .find(|c| c.name() == "child")
             .unwrap();
         assert_eq!(
-            updated_child
-                .transform_to_parent()
-                .unwrap()
-                .translation
-                .vector,
+            updated_child.transformation().unwrap().translation.vector,
             Vector3::new(4.0, 5.0, 6.0)
         );
 
@@ -1126,28 +1122,24 @@ mod tests {
 
         let result = &child + z(5.0);
         assert_relative_eq!(
-            result.transform_to_parent().unwrap().translation.vector,
+            result.transformation().unwrap().translation.vector,
             Vector3::new(0.0, 0.0, 5.0),
             epsilon = 1e-10
         );
         assert_relative_eq!(
-            child.transform_to_parent().unwrap().translation.vector,
+            child.transformation().unwrap().translation.vector,
             Vector3::new(0.0, 0.0, 0.0),
             epsilon = 1e-10
         );
 
         let result = &result - y(3.0);
         assert_relative_eq!(
-            result.transform_to_parent().unwrap().translation.vector,
+            result.transformation().unwrap().translation.vector,
             Vector3::new(0.0, -3.0, 5.0),
             epsilon = 1e-10
         );
 
-        let (roll, pitch, yaw) = result
-            .transform_to_parent()
-            .unwrap()
-            .rotation
-            .euler_angles();
+        let (roll, pitch, yaw) = result.transformation().unwrap().rotation.euler_angles();
         assert_relative_eq!(
             Vector3::new(roll, pitch, yaw),
             Vector3::new(0.0, 0.0, 0.0),
@@ -1168,22 +1160,18 @@ mod tests {
             .unwrap();
         let result = &child * rz(std::f64::consts::FRAC_PI_4);
 
-        let (roll, pitch, yaw) = result
-            .transform_to_parent()
-            .unwrap()
-            .rotation
-            .euler_angles();
+        let (roll, pitch, yaw) = result.transformation().unwrap().rotation.euler_angles();
         assert_relative_eq!(
             Vector3::new(roll, pitch, yaw),
             Vector3::new(0.0, 0.0, std::f64::consts::FRAC_PI_4),
             epsilon = 1e-10
         );
         assert_relative_eq!(
-            result.transform_to_parent().unwrap().translation.vector,
+            result.transformation().unwrap().translation.vector,
             Vector3::new(0.0, 0.0, 0.0),
             epsilon = 1e-10
         );
-        let (roll, pitch, yaw) = child.transform_to_parent().unwrap().rotation.euler_angles();
+        let (roll, pitch, yaw) = child.transformation().unwrap().rotation.euler_angles();
         assert_relative_eq!(
             Vector3::new(roll, pitch, yaw),
             Vector3::new(0.0, 0.0, 0.0),

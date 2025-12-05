@@ -103,7 +103,7 @@ class Frame:
         binding_pose = self._core_frame.add_pose(position._binding_structure, orientation._binding_structure)
         return Pose._from_rust(binding_pose)
 
-    def transformation_to_parent(self) -> tuple[Vector3, Rotation]:
+    def transformation(self) -> tuple[Vector3, Rotation]:
         """Returns the transformation from this frame to its parent frame.
 
         Returns:
@@ -112,7 +112,7 @@ class Frame:
         Raises:
             ValueError: If the frame has no parent.
         """
-        binding_position, binding_rotation = self._core_frame.transformation_to_parent()
+        binding_position, binding_rotation = self._core_frame.transformation()
         return (
             Vector3(*binding_position.to_tuple()),
             Rotation._from_rust(binding_rotation),
