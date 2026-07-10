@@ -163,10 +163,10 @@ class Isometry:
 
     @classmethod
     def identity(cls) -> Isometry:
-        """Initializes the identity isometry.
+        """Initializes the identity isometry (no translation, no rotation).
 
-        This isometry applies the rotation R with its axis passing through the point P.
-        This effectively lets P invariant.
+        Returns:
+            The identity isometry.
         """
         instance = cls.__new__(cls)
         instance._core_isometry = _core.Isometry.identity()
