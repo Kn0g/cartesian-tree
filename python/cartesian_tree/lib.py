@@ -239,9 +239,16 @@ class Pose:
 
     _core_pose: _core.Pose
 
-    def frame(self) -> Frame:
-        """Returns the frame of the pose."""
-        return Frame._from_rust(self._core_pose.frame())
+    def frame(self) -> Frame | None:
+        """Returns the frame of the pose.
+
+        Returns:
+            The frame the pose is attached to, or None if the frame has been dropped.
+        """
+        binding_frame = self._core_pose.frame()
+        if binding_frame is None:
+            return None
+        return Frame._from_rust(binding_frame)
 
     def transformation(self) -> tuple[Vector3, Rotation]:
         """Returns the transformation of the pose to its parent frame.
