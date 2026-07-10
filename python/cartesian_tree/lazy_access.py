@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
+from cartesian_tree import _cartesian_tree as _core
 
 
 class LazyTranslation:
