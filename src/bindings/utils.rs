@@ -20,10 +20,10 @@ pub struct PyRotation {
 #[pymethods]
 impl PyRotation {
     #[classmethod]
-    fn from_quaternion(_cls: &Bound<'_, PyType>, x: f64, y: f64, z: f64, w: f64) -> Self {
-        Self {
-            rust_rotation: Rotation::from_quaternion(x, y, z, w),
-        }
+    fn from_quaternion(_cls: &Bound<'_, PyType>, x: f64, y: f64, z: f64, w: f64) -> PyResult<Self> {
+        Ok(Self {
+            rust_rotation: Rotation::from_quaternion(x, y, z, w)?,
+        })
     }
 
     #[classmethod]

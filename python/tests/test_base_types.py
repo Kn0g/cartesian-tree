@@ -41,6 +41,16 @@ def test_rotation_from_quaternion() -> None:
     assert quaternion.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, radians(90.0)), abs=1e-5)
 
 
+def test_rotation_from_quaternion_normalizes() -> None:
+    rotation = Rotation.from_quaternion(0.0, 0.0, 2.0, 0.0)
+    assert rotation.as_quaternion().as_tuple() == pytest.approx((0.0, 0.0, 1.0, 0.0), abs=1e-12)
+
+
+def test_rotation_from_quaternion_rejects_zero_norm() -> None:
+    with pytest.raises(ValueError, match="norm is too close to zero"):
+        Rotation.from_quaternion(0.0, 0.0, 0.0, 0.0)
+
+
 def test_rotation_identity() -> None:
     identity = Rotation.identity()
     assert identity.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-5)

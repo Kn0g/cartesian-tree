@@ -176,7 +176,8 @@ class Frame:
             config_json: The JSON string to apply.
 
         Raises:
-            ValueError: On deserialization or mismatch errors (e.g. if this frame is not the root).
+            ValueError: On deserialization or mismatch errors (e.g. if this frame is not the root),
+                or if an orientation in the config cannot be normalized.
         """
         self._core_frame.apply_config(config_json)
 

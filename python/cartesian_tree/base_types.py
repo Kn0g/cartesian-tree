@@ -18,6 +18,8 @@ class Rotation:
     def from_quaternion(cls, x: float, y: float, z: float, w: float) -> Rotation:
         """Initializes the rotation from quaternion values.
 
+        Note, the quaternion does not need to be normalized; it is normalized internally.
+
         Args:
             x: The x value.
             y: The y value.
@@ -26,6 +28,9 @@ class Rotation:
 
         Returns:
             The initialized instance.
+
+        Raises:
+            ValueError: If the quaternion's norm is too close to zero to normalize.
         """
         instance = cls.__new__(cls)
         instance._core_rotation = _core.Rotation.from_quaternion(x, y, z, w)
