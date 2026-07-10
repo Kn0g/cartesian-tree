@@ -636,7 +636,7 @@ impl HasChildren for Frame {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy_access::{rz, y, z};
+    use crate::lazy_access::{rx, ry, rz, x, y, z};
 
     use super::*;
     use approx::assert_relative_eq;
@@ -1083,6 +1083,116 @@ mod tests {
 
         // Total offset should be: f2 (0,2,0) + pose (1,1,0) + f1 (1,0,0)
         assert!((pos - Vector3::new(2.0, 3.0, 0.0)).norm() < 1e-6);
+    }
+
+    #[test]
+    fn test_pose_round_trip_through_deep_tree() {
+        // Two branches, each two levels deep, all with non-identity transforms:
+        // expressing a pose in the other branch and back must be lossless.
+        let root = Frame::new_origin("root");
+        let a = root
+            .add_child(
+                "a",
+                Vector3::new(0.3, -1.2, 2.5),
+                UnitQuaternion::from_euler_angles(0.4, -0.3, 1.2),
+            )
+            .unwrap();
+        let b = a
+            .add_child(
+                "b",
+                Vector3::new(-2.0, 0.7, 0.1),
+                UnitQuaternion::from_euler_angles(-1.0, 0.2, 0.5),
+            )
+            .unwrap();
+        let c = root
+            .add_child(
+                "c",
+                Vector3::new(1.5, 2.0, -0.4),
+                UnitQuaternion::from_euler_angles(0.1, 1.1, -0.7),
+            )
+            .unwrap();
+        let d = c
+            .add_child(
+                "d",
+                Vector3::new(0.0, -0.5, 1.0),
+                UnitQuaternion::from_euler_angles(0.9, -0.8, 0.3),
+            )
+            .unwrap();
+
+        let pose = b.add_pose(
+            Vector3::new(0.2, 0.4, -0.6),
+            UnitQuaternion::from_euler_angles(0.5, 0.5, -0.5),
+        );
+
+        let round_tripped = pose.in_frame(&d).unwrap().in_frame(&b).unwrap();
+        let original = pose.transformation();
+        let result = round_tripped.transformation();
+        assert_relative_eq!(
+            result.translation.vector,
+            original.translation.vector,
+            epsilon = 1e-9
+        );
+        assert_relative_eq!(
+            result.rotation.angle_to(&original.rotation),
+            0.0,
+            epsilon = 1e-9
+        );
+    }
+
+    #[test]
+    fn test_in_frame_across_disjoint_trees_fails() {
+        let tree_1 = Frame::new_origin("tree_1");
+        let tree_2 = Frame::new_origin("tree_2");
+        let pose = tree_1.add_pose(Vector3::zeros(), UnitQuaternion::identity());
+
+        assert!(matches!(
+            pose.in_frame(&tree_2),
+            Err(CartesianTreeError::NoCommonAncestor(..))
+        ));
+    }
+
+    #[test]
+    fn test_apply_config_malformed_json_fails() {
+        let root = Frame::new_origin("root");
+        assert!(matches!(
+            root.apply_config("not json"),
+            Err(CartesianTreeError::SerdeError(_))
+        ));
+    }
+
+    #[test]
+    fn test_lazy_helpers_all_axes() {
+        use nalgebra::UnitQuaternion;
+
+        let root = Frame::new_origin("root");
+        let pose = root.add_pose(Vector3::zeros(), UnitQuaternion::identity());
+
+        let moved = &(&(&pose + x(1.0)) + y(2.0)) + z(3.0);
+        assert_relative_eq!(
+            moved.transformation().translation.vector,
+            Vector3::new(1.0, 2.0, 3.0),
+            epsilon = 1e-10
+        );
+
+        let rotated = &pose * rx(0.3);
+        assert_relative_eq!(
+            rotated
+                .transformation()
+                .rotation
+                .angle_to(&UnitQuaternion::from_euler_angles(0.3, 0.0, 0.0)),
+            0.0,
+            epsilon = 1e-10
+        );
+
+        let rotated = &pose * ry(0.4);
+        assert_relative_eq!(
+            rotated
+                .transformation()
+                .rotation
+                .angle_to(&UnitQuaternion::from_euler_angles(0.0, 0.4, 0.0)),
+            0.0,
+            epsilon = 1e-10
+        );
     }
 
     #[test]
