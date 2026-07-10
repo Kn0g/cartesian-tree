@@ -7,6 +7,7 @@ cartesian-tree is a library for managing and transforming poses in a tree-struct
 - Poses and Transformations: A Pose represents a position + orientation in a frame. Easily transform poses between frames of the same tree.
 - Unified Rotations: Supports quaternions and roll-pitch-yaw (RPY) interchangeably.
 - Lazy Operations: Quick adjustments like translations (`+ x(1.0)`) or rotations (`* rz(PI/4)`).
+- Thread Safety: Frames and poses can be shared across threads; every operation sees a consistent snapshot of the tree.
 
 ## Installation
 The project can be found on [crates.io](https://crates.io/crates/cartesiantree) and [pypi.org](https://pypi.org/project/cartesian-tree/#description)
@@ -36,7 +37,7 @@ fn main() {
     // Transform the pose to the child frame
     let pose_in_child = pose.in_frame(&child).unwrap();
 
-    println!("Pose in child: {:?}", pose_in_base.transformation());
+    println!("Pose in child: {:?}", pose_in_child.transformation());
 ```
 Python:
 

@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-#[pyclass(name = "Pose", unsendable)]
+#[pyclass(name = "Pose")]
 #[derive(Clone)]
 pub struct PyPose {
     pub(crate) rust_pose: RustPose,
