@@ -262,8 +262,9 @@ def test_lazy_translation_frame() -> None:
     pos, rot = child.transformation()
     assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
 
+    # Chained operations accumulate in world coordinates.
     result = result - y(3.0)
-    pos, rot = result.transformation()
+    pos, rot = result.add_pose(Vector3.zeros(), Rotation.identity()).in_frame(root).transformation()
     assert pos.as_tuple() == pytest.approx((0.0, -3.0, 5.0), abs=1e-10)
 
     roll, pitch, yaw = rot.as_rpy().as_tuple()
@@ -283,6 +284,23 @@ def test_lazy_rotation_frame() -> None:
     pos, rot = child.transformation()
     roll, pitch, yaw = rot.as_rpy().as_tuple()
     assert Vector3(roll, pitch, yaw).as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-10)
+
+
+def test_lazy_ops_on_non_identity_frame() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3(1.0, 0.0, 0.0), Rotation.from_rpy(0.0, 0.0, radians(90)))
+
+    # Translation is interpreted in the parent frame: result at child + (0, 3, 0) in root.
+    shifted = child + y(3.0)
+    pos, rot = shifted.add_pose(Vector3.zeros(), Rotation.identity()).in_frame(root).transformation()
+    assert pos.as_tuple() == pytest.approx((1.0, 3.0, 0.0), abs=1e-9)
+    assert rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, radians(90)), abs=1e-9)
+
+    # Rotation is interpreted in the local frame: position unchanged, yaw doubled.
+    rotated = child * rz(radians(90))
+    pos, rot = rotated.add_pose(Vector3.zeros(), Rotation.identity()).in_frame(root).transformation()
+    assert pos.as_tuple() == pytest.approx((1.0, 0.0, 0.0), abs=1e-9)
+    assert abs(rot.as_rpy().as_tuple()[2]) == pytest.approx(radians(180), abs=1e-9)
 
 
 def test_lazy_translation_pose() -> None:
