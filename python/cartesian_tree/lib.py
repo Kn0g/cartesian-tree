@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .base_types import Isometry, Rotation, Vector3
-from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
+from cartesian_tree import _cartesian_tree as _core
 
 if TYPE_CHECKING:
     from .lazy_access import LazyRotation, LazyTranslation

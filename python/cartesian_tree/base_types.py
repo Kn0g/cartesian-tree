@@ -6,7 +6,7 @@ from typing import Any
 
 from .angles import RPY
 from .quaternion import Quaternion
-from cartesian_tree import _cartesian_tree as _core  # type: ignore[attr-defined]
+from cartesian_tree import _cartesian_tree as _core
 
 
 class Rotation:
