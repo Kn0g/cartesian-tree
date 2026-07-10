@@ -186,9 +186,19 @@ def test_add_pose_and_update() -> None:
 
     # Access frame
     frame_of_pose = pose.frame()
+    assert frame_of_pose is not None
     assert frame_of_pose.name == "base"
     frame_of_pose.add_child("child_of_pose_frame", p_position, p_orientation)
     assert len(frame_of_pose.children()) == 1
+
+
+def test_pose_frame_returns_none_when_frame_dropped() -> None:
+    def make_orphan_pose() -> Pose:
+        temp = Frame("temp")
+        return temp.add_pose(Vector3.zeros(), Rotation.identity())
+
+    orphan = make_orphan_pose()  # The frame is garbage-collected here.
+    assert orphan.frame() is None
 
 
 def test_pose_in_frame() -> None:
