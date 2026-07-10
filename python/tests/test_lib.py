@@ -192,6 +192,19 @@ def test_add_pose_and_update() -> None:
     assert len(frame_of_pose.children()) == 1
 
 
+def test_detached_frame_raises_clear_error() -> None:
+    def make_detached() -> Frame:
+        root = Frame("root")
+        return root.add_child("kid", Vector3.zeros(), Rotation.identity())
+
+    kid = make_detached()  # The root is garbage-collected here.
+    assert kid.parent() is None
+    with pytest.raises(ValueError, match="detached"):
+        kid.transformation()
+    with pytest.raises(ValueError, match="detached"):
+        kid.set(Vector3.zeros(), Rotation.identity())
+
+
 def test_pose_frame_returns_none_when_frame_dropped() -> None:
     def make_orphan_pose() -> Pose:
         temp = Frame("temp")

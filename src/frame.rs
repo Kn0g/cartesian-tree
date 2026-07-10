@@ -23,6 +23,15 @@ use uuid::Uuid;
 /// transformation (position and orientation) relative to its parent.
 ///
 /// Root frames (created via `Frame::new_origin`) have no parent and use the identity transform.
+///
+/// # Ownership and lifetimes
+///
+/// A frame owns its children but holds only a weak reference to its parent.
+/// Keeping a child alive therefore does **not** keep its ancestors alive: once the
+/// last owning handle to an ancestor is dropped, the frame becomes detached and
+/// operations that need the parent chain (e.g. [`Frame::transformation`],
+/// [`Pose::in_frame`]) return [`CartesianTreeError::ParentDropped`].
+/// Keep a handle to the root frame alive for as long as the tree is in use.
 #[derive(Clone, Debug)]
 pub struct Frame {
     pub(crate) data: Rc<RefCell<FrameData>>,
@@ -86,6 +95,19 @@ impl Frame {
         Rc::downgrade(&self.data)
     }
 
+    /// Returns `Ok(true)` if the frame has a live parent and `Ok(false)` if it is a root frame.
+    ///
+    /// # Errors
+    /// Returns [`CartesianTreeError::ParentDropped`] if the frame had a parent that has
+    /// been dropped (the frame is detached from its tree).
+    fn has_live_parent(&self) -> Result<bool, CartesianTreeError> {
+        match &self.borrow().parent {
+            None => Ok(false),
+            Some(weak) if weak.upgrade().is_some() => Ok(true),
+            Some(_) => Err(CartesianTreeError::ParentDropped(self.name())),
+        }
+    }
+
     pub(crate) fn walk_up_and_transform(
         &self,
         target: &Self,
@@ -107,9 +129,11 @@ impl Frame {
 
             transform = transform_to_its_parent * transform;
 
+            // The parent reference exists (checked above), so failing to upgrade it
+            // means the parent frame has been dropped.
             let parent_frame_opt = current.parent();
             current = parent_frame_opt
-                .ok_or_else(|| CartesianTreeError::IsNoAncestor(target.name(), self.name()))?;
+                .ok_or_else(|| CartesianTreeError::ParentDropped(current.name()))?;
         }
 
         Ok(transform)
@@ -130,7 +154,7 @@ impl Frame {
     /// Returns a [`CartesianTreeError`] if:
     /// - The frame has no parent.
     pub fn transformation(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
-        if self.parent().is_none() {
+        if !self.has_live_parent()? {
             return Err(CartesianTreeError::RootHasNoParent(self.name()));
         }
         Ok(self.borrow().transform_to_parent)
@@ -187,7 +211,7 @@ impl Frame {
         position: Vector3<f64>,
         orientation: impl Into<Rotation>,
     ) -> Result<(), CartesianTreeError> {
-        if self.parent().is_none() {
+        if !self.has_live_parent()? {
             return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
         }
         self.borrow_mut().transform_to_parent = Isometry3::from_parts(
@@ -229,7 +253,7 @@ impl Frame {
         &self,
         isometry: &Isometry3<f64>,
     ) -> Result<(), CartesianTreeError> {
-        if self.parent().is_none() {
+        if !self.has_live_parent()? {
             return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
         }
         let mut borrow = self.borrow_mut();
@@ -269,7 +293,7 @@ impl Frame {
         &self,
         isometry: &Isometry3<f64>,
     ) -> Result<(), CartesianTreeError> {
-        if self.parent().is_none() {
+        if !self.has_live_parent()? {
             return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
         }
         let mut borrow = self.borrow_mut();
@@ -765,6 +789,61 @@ mod tests {
         let frame = Frame::new_origin("root");
         let _borrow = frame.borrow(); // Immutable borrow
         frame.borrow_mut(); // Should panic
+    }
+
+    #[test]
+    fn test_detached_frame_errors() {
+        let child = {
+            let root = Frame::new_origin("root");
+            root.add_child("child", Vector3::zeros(), UnitQuaternion::identity())
+                .unwrap()
+        }; // The root is dropped here, detaching the child.
+
+        assert!(matches!(
+            child.transformation(),
+            Err(CartesianTreeError::ParentDropped(_))
+        ));
+        assert!(matches!(
+            child.set(Vector3::zeros(), UnitQuaternion::identity()),
+            Err(CartesianTreeError::ParentDropped(_))
+        ));
+        assert!(matches!(
+            child.apply_in_parent_frame(&Isometry3::identity()),
+            Err(CartesianTreeError::ParentDropped(_))
+        ));
+        assert!(matches!(
+            child.apply_in_local_frame(&Isometry3::identity()),
+            Err(CartesianTreeError::ParentDropped(_))
+        ));
+
+        // A true root still reports the root-specific errors.
+        let root = Frame::new_origin("solo");
+        assert!(matches!(
+            root.transformation(),
+            Err(CartesianTreeError::RootHasNoParent(_))
+        ));
+        assert!(matches!(
+            root.set(Vector3::zeros(), UnitQuaternion::identity()),
+            Err(CartesianTreeError::CannotUpdateRootTransform(_))
+        ));
+    }
+
+    #[test]
+    fn test_walk_up_over_dropped_parent_reports_detached() {
+        let leaf = {
+            let root = Frame::new_origin("root");
+            let mid = root
+                .add_child("mid", Vector3::zeros(), UnitQuaternion::identity())
+                .unwrap();
+            mid.add_child("leaf", Vector3::zeros(), UnitQuaternion::identity())
+                .unwrap()
+        }; // Dropping the root drops "mid" as well, detaching the leaf.
+        let other_root = Frame::new_origin("other");
+
+        assert!(matches!(
+            leaf.walk_up_and_transform(&other_root),
+            Err(CartesianTreeError::ParentDropped(_))
+        ));
     }
 
     #[test]
