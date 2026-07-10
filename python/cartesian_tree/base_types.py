@@ -14,6 +14,17 @@ class Rotation:
 
     _core_rotation: _core.Rotation
 
+    def __init__(self) -> None:
+        """Rotations cannot be constructed directly.
+
+        Use one of the classmethods instead: from_quaternion, from_rpy, or identity.
+
+        Raises:
+            TypeError: Always.
+        """
+        msg = "Rotation cannot be constructed directly; use from_quaternion(), from_rpy(), or identity() instead."
+        raise TypeError(msg)
+
     @classmethod
     def from_quaternion(cls, x: float, y: float, z: float, w: float) -> Rotation:
         """Initializes the rotation from quaternion values.
@@ -75,6 +86,15 @@ class Rotation:
         """
         return RPY._from_rust(self._core_rotation)
 
+    def __eq__(self, other: object) -> bool:
+        """Whether both represent the same rotation, regardless of representation."""
+        if not isinstance(other, Rotation):
+            return NotImplemented
+        return self.as_quaternion() == other.as_quaternion()
+
+    def __hash__(self) -> int:
+        return hash(self.as_quaternion())
+
     @property
     def _binding_structure(self) -> Any:
         return self._core_rotation
@@ -129,6 +149,15 @@ class Vector3:
         """The z value."""
         return self._core_vector.z
 
+    def __eq__(self, other: object) -> bool:
+        """Exact component-wise equality."""
+        if not isinstance(other, Vector3):
+            return NotImplemented
+        return self.as_tuple() == other.as_tuple()
+
+    def __hash__(self) -> int:
+        return hash(self.as_tuple())
+
     @property
     def _binding_structure(self) -> Any:
         return self._core_vector
@@ -160,6 +189,20 @@ class Isometry:
     """Rigid 3D transformation."""
 
     _core_isometry: _core.Isometry
+
+    def __init__(self) -> None:
+        """Isometries cannot be constructed directly.
+
+        Use one of the classmethods instead: identity, from_translation, from_rotation, or from_parts.
+
+        Raises:
+            TypeError: Always.
+        """
+        msg = (
+            "Isometry cannot be constructed directly; "
+            "use identity(), from_translation(), from_rotation(), or from_parts() instead."
+        )
+        raise TypeError(msg)
 
     @classmethod
     def identity(cls) -> Isometry:
@@ -256,6 +299,15 @@ class Isometry:
 
     def __mul__(self, other: Isometry) -> Isometry:
         return Isometry._from_rust(self._core_isometry.__mul__(other._binding_structure))
+
+    def __eq__(self, other: object) -> bool:
+        """Whether translation and rotation are equal (rotation compared representation-independently)."""
+        if not isinstance(other, Isometry):
+            return NotImplemented
+        return self.translation() == other.translation() and self.rotation() == other.rotation()
+
+    def __hash__(self) -> int:
+        return hash((self.translation(), self.rotation()))
 
     @property
     def _binding_structure(self) -> Any:

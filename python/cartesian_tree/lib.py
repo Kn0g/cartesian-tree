@@ -263,6 +263,15 @@ class Pose:
 
     _core_pose: _core.Pose
 
+    def __init__(self) -> None:
+        """Poses cannot be constructed directly; use Frame.add_pose instead.
+
+        Raises:
+            TypeError: Always.
+        """
+        msg = "Pose cannot be constructed directly; use Frame.add_pose() instead."
+        raise TypeError(msg)
+
     def frame(self) -> Frame | None:
         """Returns the frame of the pose.
 

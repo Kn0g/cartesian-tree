@@ -303,6 +303,11 @@ def test_detached_frame_raises_clear_error() -> None:
         kid.set(Vector3.zeros(), Rotation.identity())
 
 
+def test_pose_direct_construction_raises() -> None:
+    with pytest.raises(TypeError, match="cannot be constructed directly"):
+        Pose()
+
+
 def test_pose_frame_returns_none_when_frame_dropped() -> None:
     def make_orphan_pose() -> Pose:
         temp = Frame("temp")
