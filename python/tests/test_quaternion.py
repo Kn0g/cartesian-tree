@@ -1,5 +1,7 @@
 """Contains tests for the quaternion module."""
 
+from math import sqrt
+
 import pytest
 
 from cartesian_tree import Quaternion
@@ -37,9 +39,14 @@ def test_quaternion_as_list() -> None:
     q = Quaternion(1.0, 2.0, 3.0, 4.0)
     q_list = q.as_list()
     assert isinstance(q_list, list)
+    # The quaternion is normalized on construction.
+    norm = sqrt(30.0)
+    assert q_list == pytest.approx([1.0 / norm, 2.0 / norm, 3.0 / norm, 4.0 / norm], abs=1e-12)
 
 
 def test_quaternion_as_tuple() -> None:
     q = Quaternion(1.0, 2.0, 3.0, 4.0)
     q_tuple = q.as_tuple()
     assert isinstance(q_tuple, tuple)
+    norm = sqrt(30.0)
+    assert q_tuple == pytest.approx((1.0 / norm, 2.0 / norm, 3.0 / norm, 4.0 / norm), abs=1e-12)

@@ -4,7 +4,7 @@ from math import pi, radians
 
 import pytest
 
-from cartesian_tree import Frame, Isometry, Pose, Rotation, Vector3, rz, y, z
+from cartesian_tree import Frame, Isometry, Pose, Rotation, Vector3, rx, ry, rz, x, y, z
 
 
 def test_create_root_frame() -> None:
@@ -190,6 +190,74 @@ def test_add_pose_and_update() -> None:
     assert frame_of_pose.name == "base"
     frame_of_pose.add_child("child_of_pose_frame", p_position, p_orientation)
     assert len(frame_of_pose.children()) == 1
+
+
+def test_duplicate_child_name_raises() -> None:
+    root = Frame("root")
+    root.add_child("child", Vector3.zeros(), Rotation.identity())
+    with pytest.raises(ValueError, match="already exists"):
+        root.add_child("child", Vector3.zeros(), Rotation.identity())
+
+
+def test_root_frame_mutation_raises() -> None:
+    root = Frame("root")
+    with pytest.raises(ValueError, match="no parent"):
+        root.set(Vector3.zeros(), Rotation.identity())
+    with pytest.raises(ValueError, match="no parent"):
+        root.apply_in_parent_frame(Isometry.identity())
+    with pytest.raises(ValueError, match="no parent"):
+        root.apply_in_local_frame(Isometry.identity())
+    with pytest.raises(ValueError, match="root frame"):
+        root.transformation()
+
+
+def test_in_frame_across_disjoint_trees_raises() -> None:
+    tree_1 = Frame("tree_1")
+    tree_2 = Frame("tree_2")
+    pose = tree_1.add_pose(Vector3.zeros(), Rotation.identity())
+    with pytest.raises(ValueError, match="common ancestor"):
+        pose.in_frame(tree_2)
+
+
+def test_apply_config_error_cases() -> None:
+    root = Frame("root")
+    mismatched = '{"name": "other", "position": [0.0, 0.0, 0.0], "orientation": [0.0, 0.0, 0.0, 1.0], "children": []}'
+    with pytest.raises(ValueError, match="do not match"):
+        root.apply_config(mismatched)
+    with pytest.raises(ValueError, match="error"):
+        root.apply_config("not json")
+
+
+def test_pose_round_trip_through_deep_tree() -> None:
+    # Two branches, each two levels deep, all with non-identity transforms:
+    # expressing a pose in the other branch and back must be lossless.
+    root = Frame("root")
+    a = root.add_child("a", Vector3(0.3, -1.2, 2.5), Rotation.from_rpy(0.4, -0.3, 1.2))
+    b = a.add_child("b", Vector3(-2.0, 0.7, 0.1), Rotation.from_rpy(-1.0, 0.2, 0.5))
+    c = root.add_child("c", Vector3(1.5, 2.0, -0.4), Rotation.from_rpy(0.1, 1.1, -0.7))
+    d = c.add_child("d", Vector3(0.0, -0.5, 1.0), Rotation.from_rpy(0.9, -0.8, 0.3))
+
+    pose = b.add_pose(Vector3(0.2, 0.4, -0.6), Rotation.from_rpy(0.5, 0.5, -0.5))
+    round_tripped = pose.in_frame(d).in_frame(b)
+
+    pos, rot = round_tripped.transformation()
+    assert pos.as_tuple() == pytest.approx((0.2, 0.4, -0.6), abs=1e-9)
+    assert rot.as_rpy().as_tuple() == pytest.approx((0.5, 0.5, -0.5), abs=1e-9)
+
+
+def test_lazy_helpers_all_axes() -> None:
+    root = Frame("root")
+    pose = root.add_pose(Vector3.zeros(), Rotation.identity())
+
+    moved = pose + x(1.0) + y(2.0) + z(3.0)
+    pos, _ = moved.transformation()
+    assert pos.as_tuple() == pytest.approx((1.0, 2.0, 3.0), abs=1e-10)
+
+    _, rot = (pose * rx(0.3)).transformation()
+    assert rot.as_rpy().as_tuple() == pytest.approx((0.3, 0.0, 0.0), abs=1e-10)
+
+    _, rot = (pose * ry(0.4)).transformation()
+    assert rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.4, 0.0), abs=1e-10)
 
 
 def test_detached_frame_raises_clear_error() -> None:
