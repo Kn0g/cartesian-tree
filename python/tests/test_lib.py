@@ -218,6 +218,20 @@ def test_calibrate_frame() -> None:
     assert quat.as_quaternion().as_tuple() == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-5)
 
 
+def test_calibrate_child_under_non_identity_parent() -> None:
+    base = Frame("base")
+    # The parent of the calibrated frame is not the common ancestor and is rotated
+    mount = base.add_child("mount", Vector3(0.0, 0.0, 1.0), Rotation.from_rpy(0.0, 0.0, radians(90)))
+    reference_pose = base.add_pose(Vector3(1.0, 0.0, 0.0), Rotation.identity())
+
+    calibrated = mount.calibrate_child("calibrated", Vector3.zeros(), Rotation.identity(), reference_pose)
+
+    pose_in_calibrated = reference_pose.in_frame(calibrated)
+    pos, rot = pose_in_calibrated.transformation()
+    assert pos.as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
+    assert rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
+
+
 def test_serialization() -> None:
     root = Frame("root")
     child1 = root.add_child("child1", Vector3(1, 0, 0), Rotation.identity())
