@@ -18,6 +18,13 @@ def test_rpy_identity() -> None:
     assert identity.yaw == 0.0
 
 
+def test_rpy_equality_and_hash() -> None:
+    assert RPY(1.0, 2.0, 3.0) == RPY(1.0, 2.0, 3.0)
+    assert RPY(1.0, 2.0, 3.0) != RPY(1.0, 2.0, 4.0)
+    assert RPY(1.0, 2.0, 3.0) != (1.0, 2.0, 3.0)
+    assert len({RPY(1.0, 2.0, 3.0), RPY(1.0, 2.0, 3.0)}) == 1
+
+
 def test_rpy_as_list() -> None:
     rpy = RPY(1.0, 2.0, 3.0)
     rpy_list = rpy.as_list()

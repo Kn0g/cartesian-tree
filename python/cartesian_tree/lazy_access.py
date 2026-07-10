@@ -10,6 +10,15 @@ class LazyTranslation:
 
     inner: _core.LazyTranslation
 
+    def __init__(self) -> None:
+        """Lazy translations cannot be constructed directly; use x(), y(), or z() instead.
+
+        Raises:
+            TypeError: Always.
+        """
+        msg = "LazyTranslation cannot be constructed directly; use x(), y(), or z() instead."
+        raise TypeError(msg)
+
     @classmethod
     def _from_rust(cls, rust_lazy_access: _core.LazyTranslation) -> LazyTranslation:
         instance = cls.__new__(cls)
@@ -60,6 +69,15 @@ class LazyRotation:
     """Type wrapper for lazy rotations."""
 
     inner: _core.LazyRotation
+
+    def __init__(self) -> None:
+        """Lazy rotations cannot be constructed directly; use rx(), ry(), or rz() instead.
+
+        Raises:
+            TypeError: Always.
+        """
+        msg = "LazyRotation cannot be constructed directly; use rx(), ry(), or rz() instead."
+        raise TypeError(msg)
 
     @classmethod
     def _from_rust(cls, rust_lazy_access: _core.LazyRotation) -> LazyRotation:
