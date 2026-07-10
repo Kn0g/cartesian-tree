@@ -56,6 +56,15 @@ class RPY:
         """
         return self._core_rotation.as_rpy()
 
+    def __eq__(self, other: object) -> bool:
+        """Exact component-wise equality of the angle values (no angle wrapping)."""
+        if not isinstance(other, RPY):
+            return NotImplemented
+        return self.as_tuple() == other.as_tuple()
+
+    def __hash__(self) -> int:
+        return hash(self.as_tuple())
+
     @classmethod
     def _from_rust(cls, rust_rotation: _core.Rotation) -> RPY:
         instance = cls.__new__(cls)
