@@ -161,6 +161,48 @@ class Frame:
         """
         self._core_frame.set(position._binding_structure, orientation._binding_structure)
 
+    def set_at(self, stamp: float, position: Vector3, orientation: Rotation) -> None:
+        """Records the frame's transformation relative to its parent at the given time.
+
+        Timed samples enable time-aware queries via transformation_at and Pose.in_frame_at,
+        which interpolate between the two nearest samples. The newest 128 samples per frame
+        are kept; the oldest sample is evicted first. Unstamped writes (set, apply_...)
+        discard the time buffer and make the transform static (valid at all times) again.
+
+        Args:
+            stamp: The sample time in seconds (any monotonic clock; must be finite).
+            position: The translational offset from the parent.
+            orientation: The orientational offset from the parent.
+
+        Raises:
+            ValueError: If the frame has no parent, has been removed from its tree,
+                or the stamp is not finite.
+        """
+        self._core_frame.set_at(stamp, position._binding_structure, orientation._binding_structure)
+
+    def transformation_at(self, stamp: float) -> tuple[Vector3, Rotation]:
+        """Returns the transformation from this frame to its parent frame at the given time.
+
+        Static transforms (never written with set_at) are valid at any time. Timed
+        transforms are interpolated (linear translation, spherical rotation) between
+        the two nearest buffered samples.
+
+        Args:
+            stamp: The query time in seconds.
+
+        Returns:
+            The transformation to the parent frame at the given time (translation, rotation).
+
+        Raises:
+            ValueError: If the frame has no parent, has been removed from its tree,
+                or the stamp is not finite or outside the buffered time range.
+        """
+        binding_position, binding_rotation = self._core_frame.transformation_at(stamp)
+        return (
+            Vector3(*binding_position.to_tuple()),
+            Rotation._from_rust(binding_rotation),
+        )
+
     def apply_in_parent_frame(self, isometry: Isometry) -> None:
         """Applies the provided isometry interpreted in the parent frame to this frame.
 
@@ -353,6 +395,27 @@ class Pose:
             This pose in the new frame.
         """
         binding_pose = self._core_pose.in_frame(target_frame._binding_structure)
+        return Pose._from_rust(binding_pose)
+
+    def in_frame_at(self, target_frame: Frame, stamp: float) -> Pose:
+        """Transforms this pose into the target frame using transforms at the given time.
+
+        Static transforms (never written with Frame.set_at) are valid at any time. Timed
+        transforms are interpolated (linear translation, spherical rotation) between the
+        two nearest buffered samples.
+
+        Args:
+            target_frame: The frame to express this pose in.
+            stamp: The query time in seconds.
+
+        Returns:
+            This pose in the target frame, as of the given time.
+
+        Raises:
+            ValueError: If the frames belong to different trees, a frame has been removed,
+                or the stamp is not finite or outside the buffered range of an involved frame.
+        """
+        binding_pose = self._core_pose.in_frame_at(target_frame._binding_structure, stamp)
         return Pose._from_rust(binding_pose)
 
     @property

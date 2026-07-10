@@ -310,6 +310,45 @@ def test_tree_stays_alive_through_any_reference() -> None:
     assert pos.as_tuple() == pytest.approx((1.0, 2.0, 0.0), abs=1e-9)
 
 
+def test_timestamped_transforms() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3.zeros(), Rotation.identity())
+    child.set_at(0.0, Vector3.zeros(), Rotation.identity())
+    child.set_at(1.0, Vector3(2.0, 0.0, 0.0), Rotation.from_rpy(0.0, 0.0, radians(90)))
+
+    # Midpoint: translation lerps, rotation slerps.
+    pos, rot = child.transformation_at(0.5)
+    assert pos.as_tuple() == pytest.approx((1.0, 0.0, 0.0), abs=1e-9)
+    assert rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.0, radians(45)), abs=1e-9)
+
+    # The unstamped read returns the newest sample.
+    pos, _ = child.transformation()
+    assert pos.as_tuple() == pytest.approx((2.0, 0.0, 0.0), abs=1e-9)
+
+    with pytest.raises(ValueError, match="not covered"):
+        child.transformation_at(2.0)
+    with pytest.raises(ValueError, match="must be finite"):
+        child.transformation_at(float("nan"))
+
+
+def test_pose_in_frame_at() -> None:
+    root = Frame("root")
+    moving = root.add_child("moving", Vector3.zeros(), Rotation.identity())
+    sensor = moving.add_child("sensor", Vector3(0.0, 1.0, 0.0), Rotation.identity())
+    moving.set_at(0.0, Vector3.zeros(), Rotation.identity())
+    moving.set_at(1.0, Vector3(2.0, 0.0, 0.0), Rotation.identity())
+
+    # The static "sensor" edge is valid at any time; the timed "moving" edge interpolates.
+    pose = sensor.add_pose(Vector3.zeros(), Rotation.identity())
+    pos, _ = pose.in_frame_at(root, 0.5).transformation()
+    assert pos.as_tuple() == pytest.approx((1.0, 1.0, 0.0), abs=1e-9)
+
+    # An unstamped write clears the buffer and makes the transform static again.
+    moving.set(Vector3(5.0, 0.0, 0.0), Rotation.identity())
+    pos, _ = pose.in_frame_at(root, 42.0).transformation()
+    assert pos.as_tuple() == pytest.approx((5.0, 1.0, 0.0), abs=1e-9)
+
+
 def test_multithreaded_access() -> None:
     root = Frame("root")
     child = root.add_child("child", Vector3.zeros(), Rotation.identity())

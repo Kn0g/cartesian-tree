@@ -20,6 +20,10 @@ pub enum CartesianTreeError {
     IsNoAncestor(String, String),
     #[error("Invalid quaternion (x={0}, y={1}, z={2}, w={3}): norm is too close to zero")]
     InvalidQuaternion(f64, f64, f64, f64),
+    #[error("Time {0} is not covered by the transform buffer (available range: [{1}, {2}])")]
+    TimeNotCovered(f64, f64, f64),
+    #[error("Invalid timestamp {0}: timestamps must be finite")]
+    InvalidTimestamp(f64),
     #[error("Serialization/Deserialization error: {0}")]
     SerdeError(#[from] serde_json::Error),
     #[error("Tree structure mismatch during config apply: {0}")]
