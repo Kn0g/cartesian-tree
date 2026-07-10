@@ -9,12 +9,12 @@ use crate::lazy_access::x as rust_x;
 use crate::lazy_access::y as rust_y;
 use crate::lazy_access::z as rust_z;
 
-#[pyclass(name = "LazyTranslation", unsendable)]
+#[pyclass(name = "LazyTranslation")]
 #[derive(Clone)]
 pub struct PyLazyTranslation {
     pub(crate) inner: LazyTranslation,
 }
-#[pyclass(name = "LazyRotation", unsendable)]
+#[pyclass(name = "LazyRotation")]
 #[derive(Clone)]
 pub struct PyLazyRotation {
     pub(crate) inner: LazyRotation,

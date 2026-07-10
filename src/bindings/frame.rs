@@ -10,7 +10,7 @@ use crate::{
     tree::{HasChildren, HasParent, Walking},
 };
 
-#[pyclass(name = "Frame", unsendable)]
+#[pyclass(name = "Frame")]
 #[derive(Clone)]
 pub struct PyFrame {
     pub(crate) rust_frame: RustFrame,
@@ -47,10 +47,9 @@ impl PyFrame {
     }
 
     #[pyo3(signature = (name))]
-    fn remove_child(&self, name: &str) -> PyResult<Self> {
-        Ok(Self {
-            rust_frame: self.rust_frame.remove_child(name)?,
-        })
+    fn remove_child(&self, name: &str) -> PyResult<()> {
+        self.rust_frame.remove_child(name)?;
+        Ok(())
     }
 
     #[pyo3(signature = (name, desired_position, desired_orientation, reference_pose))]
@@ -93,17 +92,17 @@ impl PyFrame {
     }
 
     #[getter]
-    fn position(&self) -> PyVector3 {
-        PyVector3 {
-            inner: self.rust_frame.position(),
-        }
+    fn position(&self) -> PyResult<PyVector3> {
+        Ok(PyVector3 {
+            inner: self.rust_frame.position()?,
+        })
     }
 
     #[getter]
-    fn orientation(&self) -> PyRotation {
-        PyRotation {
-            rust_rotation: self.rust_frame.orientation(),
-        }
+    fn orientation(&self) -> PyResult<PyRotation> {
+        Ok(PyRotation {
+            rust_rotation: self.rust_frame.orientation()?,
+        })
     }
 
     #[pyo3(signature = (position, orientation))]
