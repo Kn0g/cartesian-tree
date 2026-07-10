@@ -14,6 +14,8 @@ pub enum CartesianTreeError {
     IsNoAncestor(String, String),
     #[error("Internal error: Weak pointer upgrade failed")]
     WeakUpgradeFailed(),
+    #[error("Invalid quaternion (x={0}, y={1}, z={2}, w={3}): norm is too close to zero")]
+    InvalidQuaternion(f64, f64, f64, f64),
     #[error("Serialization/Deserialization error: {0}")]
     SerdeError(#[from] serde_json::Error),
     #[error("Tree structure mismatch during config apply: {0}")]
