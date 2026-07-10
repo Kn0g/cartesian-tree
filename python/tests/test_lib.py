@@ -192,6 +192,36 @@ def test_add_pose_and_update() -> None:
     assert len(frame_of_pose.children()) == 1
 
 
+def test_remove_child() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3(1.0, 0.0, 0.0), Rotation.identity())
+    child.add_child("grandchild", Vector3.zeros(), Rotation.identity())
+
+    removed = root.remove_child("child")
+    assert root.children() == []
+
+    # The removed frame becomes a standalone root and keeps its subtree.
+    assert removed.parent() is None
+    assert [grandchild.name for grandchild in removed.children()] == ["grandchild"]
+
+    # The name becomes available again; unknown names are rejected.
+    root.add_child("child", Vector3.zeros(), Rotation.identity())
+    with pytest.raises(ValueError, match="has no child named"):
+        root.remove_child("unknown")
+
+
+def test_lazy_ops_do_not_register_children() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3.zeros(), Rotation.identity())
+
+    for _ in range(3):
+        _ = child + z(1.0)
+        _ = child * rz(0.1)
+
+    assert child.children() == []
+    assert len(root.children()) == 1
+
+
 def test_duplicate_child_name_raises() -> None:
     root = Frame("root")
     root.add_child("child", Vector3.zeros(), Rotation.identity())

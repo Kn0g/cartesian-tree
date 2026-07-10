@@ -46,6 +46,13 @@ impl PyFrame {
         })
     }
 
+    #[pyo3(signature = (name))]
+    fn remove_child(&self, name: &str) -> PyResult<Self> {
+        Ok(Self {
+            rust_frame: self.rust_frame.remove_child(name)?,
+        })
+    }
+
     #[pyo3(signature = (name, desired_position, desired_orientation, reference_pose))]
     fn calibrate_child(
         &self,

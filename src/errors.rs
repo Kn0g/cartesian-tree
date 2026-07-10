@@ -10,6 +10,8 @@ pub enum CartesianTreeError {
     CannotUpdateRootTransform(String),
     #[error("A child frame with name '{0}' already exists for parent '{1}'")]
     ChildNameConflict(String, String),
+    #[error("Frame '{1}' has no child named '{0}'")]
+    ChildNotFound(String, String),
     #[error("Failed to find a common ancestor between frame '{0}' and '{1}'")]
     NoCommonAncestor(String, String),
     #[error("Frame '{0}' is not an ancestor of '{1}'")]
