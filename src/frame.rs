@@ -2,12 +2,11 @@ use crate::CartesianTreeError;
 use crate::Pose;
 use crate::lazy_access::LazyRotation;
 use crate::lazy_access::LazyTranslation;
-use crate::rotation::Rotation;
+use crate::rotation::{MIN_QUATERNION_NORM, Rotation};
 use crate::tree::Walking;
 use crate::tree::{HasChildren, HasParent, NodeEquality};
 
-use nalgebra::UnitQuaternion;
-use nalgebra::{Isometry3, Translation3, Vector3};
+use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion, Vector3};
 use std::cell::RefCell;
 use std::ops::Add;
 use std::ops::Mul;
@@ -45,7 +44,9 @@ pub(crate) struct FrameData {
 struct SerialFrame {
     name: String,
     position: Vector3<f64>,
-    orientation: UnitQuaternion<f64>,
+    // Deserialized as a plain quaternion because nalgebra does not re-normalize
+    // `UnitQuaternion`s on deserialization; validated in `apply_serial`.
+    orientation: Quaternion<f64>,
     children: Vec<SerialFrame>,
 }
 
@@ -456,9 +457,9 @@ impl Frame {
             let iso = self
                 .transformation()
                 .unwrap_or_else(|_| Isometry3::identity());
-            (iso.translation.vector, iso.rotation)
+            (iso.translation.vector, iso.rotation.into_inner())
         } else {
-            (Vector3::zeros(), UnitQuaternion::identity())
+            (Vector3::zeros(), Quaternion::identity())
         };
 
         SerialFrame {
@@ -485,6 +486,7 @@ impl Frame {
     /// Returns a [`CartesianTreeError`] if:
     /// - On deserialization failure.
     /// - The frame names do not match at the root.
+    /// - An orientation in the config has a norm too close to zero to normalize.
     ///
     pub fn apply_config(&self, json: &str) -> Result<(), CartesianTreeError> {
         let serial: SerialFrame = serde_json::from_str(json)?;
@@ -502,7 +504,12 @@ impl Frame {
 
         // only update if frame has parent
         if self.parent().is_some() {
-            self.set(serial.position, serial.orientation)?;
+            let orientation = UnitQuaternion::try_new(serial.orientation, MIN_QUATERNION_NORM)
+                .ok_or_else(|| {
+                    let q = &serial.orientation;
+                    CartesianTreeError::InvalidQuaternion(q.i, q.j, q.k, q.w)
+                })?;
+            self.set(serial.position, orientation)?;
         }
 
         for potential_child in &serial.children {
@@ -1167,6 +1174,42 @@ mod tests {
         }
         "#;
         assert!(default_root.apply_config(mismatch_json).is_err());
+    }
+
+    #[test]
+    fn test_apply_config_validates_quaternions() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child("child", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+
+        // Non-unit quaternions are normalized on load.
+        let scaled_json = r#"
+        {
+            "name": "root",
+            "position": [0.0, 0.0, 0.0],
+            "orientation": [0.0, 0.0, 0.0, 1.0],
+            "children": [
+                {
+                    "name": "child",
+                    "position": [0.0, 0.0, 0.0],
+                    "orientation": [0.0, 0.0, 2.0, 0.0],
+                    "children": []
+                }
+            ]
+        }
+        "#;
+        root.apply_config(scaled_json).unwrap();
+        let q = child.orientation().as_quaternion();
+        assert_relative_eq!(q.k, 1.0, epsilon = 1e-12);
+        assert_relative_eq!(q.w, 0.0, epsilon = 1e-12);
+
+        // Zero-norm quaternions are rejected.
+        let zero_json = scaled_json.replace("2.0", "0.0");
+        assert!(matches!(
+            root.apply_config(&zero_json),
+            Err(CartesianTreeError::InvalidQuaternion(..))
+        ));
     }
 
     #[test]

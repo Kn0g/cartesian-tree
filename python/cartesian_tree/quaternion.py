@@ -18,6 +18,9 @@ class Quaternion:
             y: The y value.
             z: The z value.
             w: The w value.
+
+        Raises:
+            ValueError: If the quaternion's norm is too close to zero to normalize.
         """
         self._core_rotation = _core.Rotation.from_quaternion(x, y, z, w)
 

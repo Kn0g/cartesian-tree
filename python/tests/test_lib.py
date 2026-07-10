@@ -262,6 +262,17 @@ def test_serialization() -> None:
     assert position.as_tuple() == pytest.approx((0.0, 1.0, 0.0), abs=1e-5)  # Updated back to '1'
 
 
+def test_apply_config_rejects_zero_norm_quaternion() -> None:
+    root = Frame("root")
+    root.add_child("child", Vector3.zeros(), Rotation.identity())
+    config = (
+        '{"name": "root", "position": [0.0, 0.0, 0.0], "orientation": [0.0, 0.0, 0.0, 1.0], "children": '
+        '[{"name": "child", "position": [0.0, 0.0, 0.0], "orientation": [0.0, 0.0, 0.0, 0.0], "children": []}]}'
+    )
+    with pytest.raises(ValueError, match="norm is too close to zero"):
+        root.apply_config(config)
+
+
 def test_lazy_translation_frame() -> None:
     root = Frame("root")
     child = root.add_child("child", Vector3(0.0, 0.0, 0.0), Rotation.identity())
