@@ -4,6 +4,8 @@ pub enum CartesianTreeError {
     FrameDropped(String),
     #[error("Frame '{0}' is a root frame and has no parent")]
     RootHasNoParent(String),
+    #[error("Frame '{0}' is detached: its parent frame has been dropped")]
+    ParentDropped(String),
     #[error("Cannot update transform for frame '{0}' as it has no parent")]
     CannotUpdateRootTransform(String),
     #[error("A child frame with name '{0}' already exists for parent '{1}'")]
