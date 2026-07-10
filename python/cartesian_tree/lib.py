@@ -1,4 +1,4 @@
-"""Defines a the main lib classes."""
+"""Defines the main library classes."""
 
 from __future__ import annotations
 
@@ -174,8 +174,8 @@ class Frame:
     def apply_config(self, config_json: str) -> None:
         """Applies a JSON config to update matching transforms in the tree.
 
-        Deserializes the JSON to a temporary structure, then recursively updates transforms to the
-        parent frames where names match (partial apply; ignores unmatched frames in config).
+        Deserializes the JSON to a temporary structure, then recursively updates the transforms
+        of frames whose names match (partial apply; unmatched frames in the config are ignored).
         It is assumed this frame is the root.
 
         Args:
@@ -305,9 +305,6 @@ class Pose:
         Args:
             isometry: The isometry (describing a motion in this frame) to apply to the current
                 transformation.
-
-        Raises:
-            ValueError: If the frame has no parent.
         """
         self._core_pose.apply_in_local_frame(isometry._binding_structure)
 
