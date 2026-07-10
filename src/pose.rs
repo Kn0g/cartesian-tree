@@ -166,7 +166,7 @@ impl Pose {
         let source_data = self
             .parent
             .upgrade()
-            .ok_or(CartesianTreeError::WeakUpgradeFailed())?;
+            .ok_or(CartesianTreeError::WeakUpgradeFailed)?;
         let source = Frame { data: source_data };
         let ancestor = source
             .lca_with(target)
