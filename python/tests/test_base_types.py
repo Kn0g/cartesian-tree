@@ -19,12 +19,14 @@ def test_vector3_as_list() -> None:
     v = Vector3(1.0, 2.0, 3.0)
     v_list = v.as_list()
     assert isinstance(v_list, list)
+    assert v_list == [1.0, 2.0, 3.0]
 
 
 def test_vector3_as_tuple() -> None:
     v = Vector3(1.0, 2.0, 3.0)
     v_tuple = v.as_tuple()
     assert isinstance(v_tuple, tuple)
+    assert v_tuple == (1.0, 2.0, 3.0)
 
 
 def test_rotation_from_rpy() -> None:
