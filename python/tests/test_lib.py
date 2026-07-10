@@ -1,5 +1,6 @@
 """Contains unit tests for the library."""
 
+from concurrent.futures import ThreadPoolExecutor
 from math import pi, radians
 
 import pytest
@@ -195,14 +196,16 @@ def test_add_pose_and_update() -> None:
 def test_remove_child() -> None:
     root = Frame("root")
     child = root.add_child("child", Vector3(1.0, 0.0, 0.0), Rotation.identity())
-    child.add_child("grandchild", Vector3.zeros(), Rotation.identity())
+    grandchild = child.add_child("grandchild", Vector3.zeros(), Rotation.identity())
 
-    removed = root.remove_child("child")
+    root.remove_child("child")
     assert root.children() == []
 
-    # The removed frame becomes a standalone root and keeps its subtree.
-    assert removed.parent() is None
-    assert [grandchild.name for grandchild in removed.children()] == ["grandchild"]
+    # Handles to removed frames (including the subtree) become stale.
+    with pytest.raises(ValueError, match="stale"):
+        child.transformation()
+    with pytest.raises(ValueError, match="stale"):
+        grandchild.transformation()
 
     # The name becomes available again; unknown names are rejected.
     root.add_child("child", Vector3.zeros(), Rotation.identity())
@@ -245,7 +248,7 @@ def test_in_frame_across_disjoint_trees_raises() -> None:
     tree_1 = Frame("tree_1")
     tree_2 = Frame("tree_2")
     pose = tree_1.add_pose(Vector3.zeros(), Rotation.identity())
-    with pytest.raises(ValueError, match="common ancestor"):
+    with pytest.raises(ValueError, match="different trees"):
         pose.in_frame(tree_2)
 
 
@@ -290,17 +293,37 @@ def test_lazy_helpers_all_axes() -> None:
     assert rot.as_rpy().as_tuple() == pytest.approx((0.0, 0.4, 0.0), abs=1e-10)
 
 
-def test_detached_frame_raises_clear_error() -> None:
-    def make_detached() -> Frame:
+def test_tree_stays_alive_through_any_reference() -> None:
+    def make_leaf() -> Frame:
         root = Frame("root")
-        return root.add_child("kid", Vector3.zeros(), Rotation.identity())
+        mid = root.add_child("mid", Vector3(1.0, 0.0, 0.0), Rotation.identity())
+        return mid.add_child("leaf", Vector3(0.0, 2.0, 0.0), Rotation.identity())
 
-    kid = make_detached()  # The root is garbage-collected here.
-    assert kid.parent() is None
-    with pytest.raises(ValueError, match="detached"):
-        kid.transformation()
-    with pytest.raises(ValueError, match="detached"):
-        kid.set(Vector3.zeros(), Rotation.identity())
+    leaf = make_leaf()  # All other Python references are garbage-collected here.
+
+    parent = leaf.parent()
+    assert parent is not None
+    assert parent.name == "mid"
+    assert leaf.root().name == "root"
+
+    pos, _ = leaf.add_pose(Vector3.zeros(), Rotation.identity()).in_frame(leaf.root()).transformation()
+    assert pos.as_tuple() == pytest.approx((1.0, 2.0, 0.0), abs=1e-9)
+
+
+def test_multithreaded_access() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3.zeros(), Rotation.identity())
+
+    def worker(index: int) -> int:
+        for step in range(100):
+            child.set(Vector3(float(step), 0.0, float(index)), Rotation.identity())
+            pose = root.add_pose(Vector3.zeros(), Rotation.identity())
+            pose.in_frame(child)
+        return index
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(worker, range(4)))
+    assert results == [0, 1, 2, 3]
 
 
 def test_pose_direct_construction_raises() -> None:
@@ -308,13 +331,14 @@ def test_pose_direct_construction_raises() -> None:
         Pose()
 
 
-def test_pose_frame_returns_none_when_frame_dropped() -> None:
-    def make_orphan_pose() -> Pose:
-        temp = Frame("temp")
-        return temp.add_pose(Vector3.zeros(), Rotation.identity())
+def test_pose_frame_returns_none_when_frame_removed() -> None:
+    root = Frame("root")
+    child = root.add_child("child", Vector3.zeros(), Rotation.identity())
+    pose = child.add_pose(Vector3.zeros(), Rotation.identity())
 
-    orphan = make_orphan_pose()  # The frame is garbage-collected here.
-    assert orphan.frame() is None
+    assert pose.frame() is not None
+    root.remove_child("child")
+    assert pose.frame() is None
 
 
 def test_pose_in_frame() -> None:

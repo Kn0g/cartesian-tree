@@ -17,11 +17,14 @@ class Frame:
     Each frame can have one parent and multiple children. The frame stores its
     transformation (position and orientation) relative to its parent.
 
-    Note on lifetimes: a frame owns its children but only weakly references its
-    parent. Keeping a child alive does not keep its ancestors alive: if the last
-    reference to an ancestor is garbage-collected, the frame becomes detached and
-    operations that need the parent chain raise a ValueError. Keep a reference to
-    the root frame alive for as long as the tree is in use.
+    All frames of a tree share ownership of the tree: keeping any Frame (or Pose)
+    alive keeps the whole tree alive, so a leaf reference is always enough to reach
+    the root. Frames removed via remove_child become stale, and operations on stale
+    frames raise a ValueError.
+
+    Frames can be shared freely across threads: all operations are synchronized
+    through a tree-wide read/write lock, and every operation sees a consistent
+    snapshot of the tree.
     """
 
     def __init__(self, name: str) -> None:
@@ -44,13 +47,21 @@ class Frame:
 
     @property
     def position(self) -> Vector3:
-        """The position of the frame relative to its parent."""
+        """The position of the frame relative to its parent.
+
+        Raises:
+            ValueError: If the frame has been removed from its tree.
+        """
         binding_position = self._core_frame.position
         return Vector3(*binding_position.to_tuple())
 
     @property
     def orientation(self) -> Rotation:
-        """The orientation of the frame relative to its parent."""
+        """The orientation of the frame relative to its parent.
+
+        Raises:
+            ValueError: If the frame has been removed from its tree.
+        """
         binding_orientation = self._core_frame.orientation
         return Rotation._from_rust(binding_orientation)
 
@@ -71,22 +82,19 @@ class Frame:
         binding_frame = self._core_frame.add_child(name, position._binding_structure, orientation._binding_structure)
         return Frame._from_rust(binding_frame)
 
-    def remove_child(self, name: str) -> Frame:
-        """Removes the child with the given name and detaches it from the tree.
+    def remove_child(self, name: str) -> None:
+        """Removes the child with the given name and its entire subtree from the tree.
 
-        The removed frame becomes a standalone root frame: its parent link is cleared
-        and its transform is reset to identity. Its own children stay attached to it.
+        Existing Frame objects referring to removed frames become stale and raise a
+        ValueError when used.
 
         Args:
             name: The name of the child frame to remove.
 
-        Returns:
-            The removed (now detached) frame.
-
         Raises:
             ValueError: If no child with the given name exists.
         """
-        return Frame._from_rust(self._core_frame.remove_child(name))
+        self._core_frame.remove_child(name)
 
     def calibrate_child(
         self, name: str, desired_position: Vector3, desired_orientation: Rotation, reference_pose: Pose
@@ -276,7 +284,8 @@ class Pose:
         """Returns the frame of the pose.
 
         Returns:
-            The frame the pose is attached to, or None if the frame has been dropped.
+            The frame the pose is attached to, or None if the frame has been removed
+            from the tree.
         """
         binding_frame = self._core_pose.frame()
         if binding_frame is None:
