@@ -186,6 +186,54 @@ impl Pose {
     /// let pose_in_new_frame = pose.in_frame(&new_frame);
     /// ```
     pub fn in_frame(&self, target: &Frame) -> Result<Self, CartesianTreeError> {
+        self.in_frame_impl(target, None)
+    }
+
+    /// Transforms this pose into the coordinate system of the given target frame,
+    /// evaluating every frame-to-parent transform along the way at the given time.
+    ///
+    /// Static transforms (never written with [`Frame::set_at`]) are valid at any time.
+    /// Timed transforms are interpolated (linear translation, spherical rotation)
+    /// between the two nearest buffered samples.
+    ///
+    /// # Arguments
+    /// * `target` - The frame to express this pose in.
+    /// * `stamp` - The query time in seconds.
+    ///
+    /// # Returns
+    /// A new `Pose`, expressed in the `target` frame as of `stamp`.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The pose's frame or the target frame has been removed from the tree.
+    /// - The frames belong to different trees.
+    /// - There is no common ancestor between `self` and `target`.
+    /// - `stamp` is not finite, or lies outside the buffered range of an involved frame.
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let child = root.add_child("child", Vector3::zeros(), UnitQuaternion::identity()).unwrap();
+    /// child.set_at(0.0, Vector3::zeros(), UnitQuaternion::identity()).unwrap();
+    /// child.set_at(1.0, Vector3::new(2.0, 0.0, 0.0), UnitQuaternion::identity()).unwrap();
+    ///
+    /// let pose = child.add_pose(Vector3::zeros(), UnitQuaternion::identity());
+    /// let midway = pose.in_frame_at(&root, 0.5).unwrap();
+    /// assert!((midway.transformation().translation.vector.x - 1.0).abs() < 1e-10);
+    /// ```
+    pub fn in_frame_at(&self, target: &Frame, stamp: f64) -> Result<Self, CartesianTreeError> {
+        crate::frame::ensure_finite_stamp(stamp)?;
+        self.in_frame_impl(target, Some(stamp))
+    }
+
+    fn in_frame_impl(
+        &self,
+        target: &Frame,
+        stamp: Option<f64>,
+    ) -> Result<Self, CartesianTreeError> {
         if !Arc::ptr_eq(&self.tree, &target.tree) {
             let own_name = self
                 .frame()
@@ -209,10 +257,11 @@ impl Pose {
             source_anchor,
             self.anchor.offset() * self.transform_to_parent,
             ancestor,
+            stamp,
         )?;
 
         // Transformation from the target's anchor up to the ancestor (to be inverted).
-        let tf_down = guard.transform_up(target_anchor, Isometry3::identity(), ancestor)?;
+        let tf_down = guard.transform_up(target_anchor, Isometry3::identity(), ancestor, stamp)?;
 
         Ok(Self {
             tree: Arc::clone(&self.tree),

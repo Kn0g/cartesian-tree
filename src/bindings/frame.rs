@@ -112,6 +112,26 @@ impl PyFrame {
         Ok(())
     }
 
+    #[pyo3(signature = (stamp, position, orientation))]
+    fn set_at(&self, stamp: f64, position: PyVector3, orientation: PyRotation) -> PyResult<()> {
+        self.rust_frame
+            .set_at(stamp, position.inner, orientation.rust_rotation)?;
+        Ok(())
+    }
+
+    #[pyo3(signature = (stamp))]
+    fn transformation_at(&self, stamp: f64) -> PyResult<(PyVector3, PyRotation)> {
+        let isometry = self.rust_frame.transformation_at(stamp)?;
+        Ok((
+            PyVector3 {
+                inner: isometry.translation.vector,
+            },
+            PyRotation {
+                rust_rotation: isometry.rotation.into(),
+            },
+        ))
+    }
+
     #[pyo3(signature = (isometry))]
     fn apply_in_parent_frame(&self, isometry: PyIsometry) -> PyResult<()> {
         self.rust_frame.apply_in_parent_frame(&isometry.inner)?;

@@ -17,6 +17,106 @@ slotmap::new_key_type! {
     pub(crate) struct NodeKey;
 }
 
+/// Maximum number of timed samples kept per frame; the oldest sample is evicted first.
+const MAX_BUFFER_SAMPLES: usize = 128;
+
+/// Time-aware storage for one frame-to-parent transformation.
+#[derive(Debug, Clone)]
+enum TransformBuffer {
+    /// A single transform valid at all times (created by unstamped writes).
+    Static(Isometry3<f64>),
+    /// Time-stamped samples sorted by stamp ascending.
+    /// Invariant: never empty, at most [`MAX_BUFFER_SAMPLES`] entries, finite stamps.
+    Timed(Vec<(f64, Isometry3<f64>)>),
+}
+
+impl TransformBuffer {
+    /// Returns the most recent transform (the only one for static edges).
+    fn latest(&self) -> Isometry3<f64> {
+        match self {
+            Self::Static(transform) => *transform,
+            Self::Timed(samples) => samples.last().expect("timed buffers are never empty").1,
+        }
+    }
+
+    /// Returns the transform at `stamp`, interpolating between the two nearest samples.
+    ///
+    /// Static edges are valid at any time. For timed edges, `stamp` must lie within
+    /// the buffered range; extrapolation is refused.
+    fn at(&self, stamp: f64) -> Result<Isometry3<f64>, CartesianTreeError> {
+        match self {
+            Self::Static(transform) => Ok(*transform),
+            Self::Timed(samples) => {
+                let oldest = samples.first().expect("timed buffers are never empty").0;
+                let newest = samples.last().expect("timed buffers are never empty").0;
+                if stamp < oldest || stamp > newest {
+                    return Err(CartesianTreeError::TimeNotCovered(stamp, oldest, newest));
+                }
+                match Self::search(samples, stamp) {
+                    Ok(index) => Ok(samples[index].1),
+                    Err(index) => {
+                        let (before_stamp, before) = samples[index - 1];
+                        let (after_stamp, after) = samples[index];
+                        let ratio = (stamp - before_stamp) / (after_stamp - before_stamp);
+                        Ok(interpolate(&before, &after, ratio))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Inserts a timed sample, replacing an existing sample with the same stamp and
+    /// evicting the oldest sample when the buffer is full. A static edge becomes a
+    /// timed edge containing only the new sample.
+    fn insert(&mut self, stamp: f64, transform: Isometry3<f64>) {
+        match self {
+            Self::Static(_) => *self = Self::Timed(vec![(stamp, transform)]),
+            Self::Timed(samples) => {
+                match Self::search(samples, stamp) {
+                    Ok(index) => samples[index].1 = transform,
+                    Err(index) => samples.insert(index, (stamp, transform)),
+                }
+                if samples.len() > MAX_BUFFER_SAMPLES {
+                    samples.remove(0);
+                }
+            }
+        }
+    }
+
+    fn search(samples: &[(f64, Isometry3<f64>)], stamp: f64) -> Result<usize, usize> {
+        samples.binary_search_by(|(sample_stamp, _)| {
+            sample_stamp
+                .partial_cmp(&stamp)
+                .expect("stamps are validated to be finite")
+        })
+    }
+}
+
+/// Interpolates between two isometries: linear for the translation, spherical for the
+/// rotation. Falls back to the nearest sample's rotation if slerp is undefined
+/// (antipodal quaternions).
+fn interpolate(before: &Isometry3<f64>, after: &Isometry3<f64>, ratio: f64) -> Isometry3<f64> {
+    let translation = before
+        .translation
+        .vector
+        .lerp(&after.translation.vector, ratio);
+    let rotation = match before.rotation.try_slerp(&after.rotation, ratio, 1.0e-9) {
+        Some(rotation) => rotation,
+        None if ratio < 0.5 => before.rotation,
+        None => after.rotation,
+    };
+    Isometry3::from_parts(Translation3::from(translation), rotation)
+}
+
+/// Validates that a timestamp is finite (NaN and infinities are rejected).
+pub(crate) const fn ensure_finite_stamp(stamp: f64) -> Result<(), CartesianTreeError> {
+    if stamp.is_finite() {
+        Ok(())
+    } else {
+        Err(CartesianTreeError::InvalidTimestamp(stamp))
+    }
+}
+
 /// A single frame node stored in a tree arena.
 #[derive(Debug)]
 struct Node {
@@ -26,8 +126,8 @@ struct Node {
     parent: Option<NodeKey>,
     /// Child nodes directly connected to this node.
     children: Vec<NodeKey>,
-    /// Transformation from this frame to its parent frame.
-    transform_to_parent: Isometry3<f64>,
+    /// Transformation from this frame to its parent frame (static or time-buffered).
+    transform_to_parent: TransformBuffer,
 }
 
 /// The arena storage shared by all frames and poses of one tree.
@@ -89,7 +189,7 @@ impl TreeInner {
             name,
             parent: Some(parent),
             children: Vec::new(),
-            transform_to_parent: transform,
+            transform_to_parent: TransformBuffer::Static(transform),
         });
         self.nodes[parent].children.push(key);
         Ok(key)
@@ -146,11 +246,15 @@ impl TreeInner {
 
     /// Accumulates the transformation from `start` (pre-composed with `start_offset`)
     /// up to the ancestor `target`.
+    ///
+    /// With `stamp: None` the latest transforms are used; with `Some(stamp)` each edge
+    /// is evaluated at that time (interpolated for timed edges).
     pub(crate) fn transform_up(
         &self,
         start: NodeKey,
         start_offset: Isometry3<f64>,
         target: NodeKey,
+        stamp: Option<f64>,
     ) -> Result<Isometry3<f64>, CartesianTreeError> {
         let mut transform = start_offset;
         let mut current = start;
@@ -162,7 +266,11 @@ impl TreeInner {
                     self.name_of(start),
                 ));
             };
-            transform = node.transform_to_parent * transform;
+            let edge = match stamp {
+                None => node.transform_to_parent.latest(),
+                Some(stamp) => node.transform_to_parent.at(stamp)?,
+            };
+            transform = edge * transform;
             current = parent;
         }
         Ok(transform)
@@ -254,7 +362,7 @@ impl Frame {
             name: name.into(),
             parent: None,
             children: Vec::new(),
-            transform_to_parent: Isometry3::identity(),
+            transform_to_parent: TransformBuffer::Static(Isometry3::identity()),
         });
         Self {
             tree: Arc::new(RwLock::new(TreeInner { nodes })),
@@ -309,7 +417,39 @@ impl Frame {
                 if node.parent.is_none() {
                     return Err(CartesianTreeError::RootHasNoParent(node.name.clone()));
                 }
-                Ok(node.transform_to_parent)
+                Ok(node.transform_to_parent.latest())
+            }
+            FrameKind::Derived { offset, .. } => Ok(*offset),
+        }
+    }
+
+    /// Returns the transformation from this frame to its parent frame at the given time.
+    ///
+    /// Static transforms (never written with [`Frame::set_at`]) are valid at any time.
+    /// Timed transforms are interpolated (linear translation, spherical rotation)
+    /// between the two nearest buffered samples.
+    ///
+    /// # Arguments
+    /// - `stamp`: The query time in seconds.
+    ///
+    /// # Returns
+    /// - The isometry from this frame to its parent frame at `stamp`.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has no parent.
+    /// - The frame has been removed from its tree.
+    /// - `stamp` is not finite, or lies outside the buffered time range.
+    pub fn transformation_at(&self, stamp: f64) -> Result<Isometry3<f64>, CartesianTreeError> {
+        ensure_finite_stamp(stamp)?;
+        match &self.kind {
+            FrameKind::Node(key) => {
+                let guard = self.read();
+                let node = guard.node(*key)?;
+                if node.parent.is_none() {
+                    return Err(CartesianTreeError::RootHasNoParent(node.name.clone()));
+                }
+                node.transform_to_parent.at(stamp)
             }
             FrameKind::Derived { offset, .. } => Ok(*offset),
         }
@@ -319,7 +459,7 @@ impl Frame {
     /// frames report identity (unlike [`Frame::transformation`], which errors).
     fn local_transform(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
         match &self.kind {
-            FrameKind::Node(key) => Ok(self.read().node(*key)?.transform_to_parent),
+            FrameKind::Node(key) => Ok(self.read().node(*key)?.transform_to_parent.latest()),
             FrameKind::Derived { offset, .. } => Ok(*offset),
         }
     }
@@ -387,6 +527,66 @@ impl Frame {
             orientation.into().as_quaternion(),
         );
         self.update_transform(|_| transform)
+    }
+
+    /// Records the frame's transformation relative to its parent at the given time.
+    ///
+    /// Timed samples enable time-aware queries via [`Frame::transformation_at`] and
+    /// [`Pose::in_frame_at`], which interpolate between the two nearest samples.
+    /// The newest 128 samples per frame are kept; the oldest sample is evicted first.
+    /// Recording a sample with an already-buffered stamp replaces that sample.
+    ///
+    /// Unstamped writes ([`Frame::set`], [`Frame::apply_in_parent_frame`],
+    /// [`Frame::apply_in_local_frame`], [`Frame::apply_config`]) discard the time buffer
+    /// and make the transform static (valid at all times) again.
+    ///
+    /// # Arguments
+    /// - `stamp`: The sample time in seconds (any monotonic clock; must be finite).
+    /// - `position`: A 3D vector representing the translational offset from the parent.
+    /// - `orientation`: An orientation convertible into a unit quaternion.
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has no parent (i.e., the root frame).
+    /// - The frame has been removed from its tree.
+    /// - The frame is a derived frame (derived frames are read-only).
+    /// - `stamp` is not finite.
+    ///
+    /// # Example
+    /// ```
+    /// use cartesian_tree::Frame;
+    /// use nalgebra::{Vector3, UnitQuaternion};
+    ///
+    /// let root = Frame::new_origin("root");
+    /// let child = root
+    ///     .add_child("moving", Vector3::zeros(), UnitQuaternion::identity())
+    ///     .unwrap();
+    /// child.set_at(0.0, Vector3::zeros(), UnitQuaternion::identity()).unwrap();
+    /// child.set_at(1.0, Vector3::new(2.0, 0.0, 0.0), UnitQuaternion::identity()).unwrap();
+    /// let midway = child.transformation_at(0.5).unwrap();
+    /// assert!((midway.translation.vector.x - 1.0).abs() < 1e-10);
+    /// ```
+    pub fn set_at(
+        &self,
+        stamp: f64,
+        position: Vector3<f64>,
+        orientation: impl Into<Rotation>,
+    ) -> Result<(), CartesianTreeError> {
+        ensure_finite_stamp(stamp)?;
+        let key = self.node_key()?;
+        let transform = Isometry3::from_parts(
+            Translation3::from(position),
+            orientation.into().as_quaternion(),
+        );
+        let mut guard = self.write();
+        let node = guard.node_mut(key)?;
+        if node.parent.is_none() {
+            return Err(CartesianTreeError::CannotUpdateRootTransform(
+                node.name.clone(),
+            ));
+        }
+        node.transform_to_parent.insert(stamp, transform);
+        Ok(())
     }
 
     /// Applies the provided isometry interpreted in the parent frame to this frame.
@@ -474,7 +674,8 @@ impl Frame {
                 node.name.clone(),
             ));
         }
-        node.transform_to_parent = update(node.transform_to_parent);
+        node.transform_to_parent =
+            TransformBuffer::Static(update(node.transform_to_parent.latest()));
         Ok(())
     }
 
@@ -636,8 +837,9 @@ impl Frame {
         let t_pose_to_reference_anchor =
             reference_pose.anchor.offset() * reference_pose.transformation();
         let t_pose_to_ancestor =
-            guard.transform_up(reference_anchor, t_pose_to_reference_anchor, ancestor)?;
-        let t_parent_to_ancestor = guard.transform_up(key, Isometry3::identity(), ancestor)?;
+            guard.transform_up(reference_anchor, t_pose_to_reference_anchor, ancestor, None)?;
+        let t_parent_to_ancestor =
+            guard.transform_up(key, Isometry3::identity(), ancestor, None)?;
 
         let t_calibrated_to_parent =
             t_parent_to_ancestor.inverse() * t_pose_to_ancestor * desired_pose.inverse();
@@ -734,7 +936,9 @@ impl Frame {
                     .read()
                     .nodes
                     .get(*key)
-                    .map_or_else(Isometry3::identity, |node| node.transform_to_parent);
+                    .map_or_else(Isometry3::identity, |node| {
+                        node.transform_to_parent.latest()
+                    });
                 (*key, transform.inverse() * isometry * transform)
             }
             FrameKind::Derived { anchor, offset, .. } => (*anchor, isometry * offset),
@@ -781,9 +985,10 @@ struct SerialFrame {
 fn to_serial(inner: &TreeInner, key: NodeKey) -> Result<SerialFrame, CartesianTreeError> {
     let node = inner.node(key)?;
     let (position, orientation) = if node.parent.is_some() {
+        let transform = node.transform_to_parent.latest();
         (
-            node.transform_to_parent.translation.vector,
-            node.transform_to_parent.rotation.into_inner(),
+            transform.translation.vector,
+            transform.rotation.into_inner(),
         )
     } else {
         (Vector3::zeros(), Quaternion::identity())
@@ -820,8 +1025,10 @@ fn apply_serial(
                 let q = &serial.orientation;
                 CartesianTreeError::InvalidQuaternion(q.i, q.j, q.k, q.w)
             })?;
-        inner.node_mut(key)?.transform_to_parent =
-            Isometry3::from_parts(Translation3::from(serial.position), orientation);
+        inner.node_mut(key)?.transform_to_parent = TransformBuffer::Static(Isometry3::from_parts(
+            Translation3::from(serial.position),
+            orientation,
+        ));
     }
 
     for potential_child in &serial.children {
@@ -1141,6 +1348,186 @@ mod tests {
         for handle in handles {
             handle.join().unwrap();
         }
+    }
+
+    #[test]
+    fn test_set_at_and_transformation_at() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child("child", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+
+        child
+            .set_at(0.0, Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+        child
+            .set_at(
+                1.0,
+                Vector3::new(2.0, 0.0, 0.0),
+                UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+            )
+            .unwrap();
+
+        // Exact sample.
+        assert_relative_eq!(
+            child.transformation_at(1.0).unwrap().translation.vector,
+            Vector3::new(2.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        // Midpoint: translation lerps, rotation slerps.
+        let midway = child.transformation_at(0.5).unwrap();
+        assert_relative_eq!(
+            midway.translation.vector,
+            Vector3::new(1.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+        let quarter_turn = UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_4);
+        assert_relative_eq!(
+            midway.rotation.angle_to(&quarter_turn),
+            0.0,
+            epsilon = 1e-10
+        );
+
+        // The unstamped read returns the newest sample.
+        assert_relative_eq!(
+            child.transformation().unwrap().translation.vector,
+            Vector3::new(2.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        // Extrapolation is refused on both sides.
+        assert!(matches!(
+            child.transformation_at(-0.1),
+            Err(CartesianTreeError::TimeNotCovered(..))
+        ));
+        assert!(matches!(
+            child.transformation_at(1.1),
+            Err(CartesianTreeError::TimeNotCovered(..))
+        ));
+
+        // Non-finite stamps are rejected.
+        assert!(matches!(
+            child.transformation_at(f64::NAN),
+            Err(CartesianTreeError::InvalidTimestamp(_))
+        ));
+        assert!(matches!(
+            child.set_at(f64::INFINITY, Vector3::zeros(), UnitQuaternion::identity()),
+            Err(CartesianTreeError::InvalidTimestamp(_))
+        ));
+
+        // Roots cannot be stamped either.
+        assert!(matches!(
+            root.set_at(0.0, Vector3::zeros(), UnitQuaternion::identity()),
+            Err(CartesianTreeError::CannotUpdateRootTransform(_))
+        ));
+    }
+
+    #[test]
+    fn test_timed_buffer_replacement_ordering_and_eviction() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child("child", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+
+        // Out-of-order insertion keeps the buffer sorted.
+        child
+            .set_at(2.0, Vector3::new(2.0, 0.0, 0.0), UnitQuaternion::identity())
+            .unwrap();
+        child
+            .set_at(0.0, Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+        assert_relative_eq!(
+            child.transformation_at(1.0).unwrap().translation.vector,
+            Vector3::new(1.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        // Same-stamp insertion replaces the sample.
+        child
+            .set_at(2.0, Vector3::new(4.0, 0.0, 0.0), UnitQuaternion::identity())
+            .unwrap();
+        assert_relative_eq!(
+            child.transformation_at(2.0).unwrap().translation.vector,
+            Vector3::new(4.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        // Overfilling the buffer evicts the oldest samples.
+        for step in 0..(MAX_BUFFER_SAMPLES + 2) {
+            #[allow(clippy::cast_precision_loss)]
+            let stamp = 10.0 + step as f64;
+            child
+                .set_at(stamp, Vector3::zeros(), UnitQuaternion::identity())
+                .unwrap();
+        }
+        assert!(matches!(
+            child.transformation_at(10.0),
+            Err(CartesianTreeError::TimeNotCovered(..))
+        ));
+        assert!(child.transformation_at(12.0).is_ok());
+    }
+
+    #[test]
+    fn test_in_frame_at_interpolates_over_the_chain() {
+        let root = Frame::new_origin("root");
+        let moving = root
+            .add_child("moving", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+        let sensor = moving
+            .add_child(
+                "sensor",
+                Vector3::new(0.0, 1.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap();
+
+        moving
+            .set_at(0.0, Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+        moving
+            .set_at(1.0, Vector3::new(2.0, 0.0, 0.0), UnitQuaternion::identity())
+            .unwrap();
+
+        // The "sensor" edge is static and thus valid at any queried time.
+        let pose = sensor.add_pose(Vector3::zeros(), UnitQuaternion::identity());
+        let midway = pose.in_frame_at(&root, 0.5).unwrap().transformation();
+        assert_relative_eq!(
+            midway.translation.vector,
+            Vector3::new(1.0, 1.0, 0.0),
+            epsilon = 1e-10
+        );
+
+        // Out-of-range chains propagate the error.
+        assert!(matches!(
+            pose.in_frame_at(&root, 5.0),
+            Err(CartesianTreeError::TimeNotCovered(..))
+        ));
+    }
+
+    #[test]
+    fn test_unstamped_write_clears_time_buffer() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child("child", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+
+        child
+            .set_at(0.0, Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+        child
+            .set_at(1.0, Vector3::new(2.0, 0.0, 0.0), UnitQuaternion::identity())
+            .unwrap();
+
+        // An unstamped write resets the edge to a static transform, valid at any time.
+        child
+            .set(Vector3::new(5.0, 0.0, 0.0), UnitQuaternion::identity())
+            .unwrap();
+        assert_relative_eq!(
+            child.transformation_at(42.0).unwrap().translation.vector,
+            Vector3::new(5.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
     }
 
     #[test]

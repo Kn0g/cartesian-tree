@@ -73,6 +73,16 @@ impl PyPose {
         })
     }
 
+    #[pyo3(signature = (target_frame, stamp))]
+    fn in_frame_at(&self, target_frame: &PyFrame, stamp: f64) -> PyResult<Self> {
+        let new_rust_pose = self
+            .rust_pose
+            .in_frame_at(&target_frame.rust_frame, stamp)?;
+        Ok(Self {
+            rust_pose: new_rust_pose,
+        })
+    }
+
     fn __add__(&self, other: PyLazyTranslation) -> Self {
         let new_rust_pose = &self.rust_pose + other.inner;
         Self {
