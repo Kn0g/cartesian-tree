@@ -517,50 +517,65 @@ impl Frame {
 
         Ok(())
     }
+
+    /// Creates an auto-named child frame that coincides with this frame moved by `isometry`,
+    /// where `isometry` is interpreted in this frame's parent coordinates
+    /// (like [`Frame::apply_in_parent_frame`]).
+    ///
+    /// For root frames, the parent coordinates are the root's own coordinates.
+    fn derive_child_in_parent_frame(&self, isometry: &Isometry3<f64>) -> Self {
+        // The child's transform is relative to this frame, so conjugate the parent-frame
+        // motion by this frame's own transform (identity for roots).
+        let transform_to_parent = self.borrow().transform_to_parent;
+        let local = transform_to_parent.inverse() * isometry * transform_to_parent;
+        self.add_child(
+            Uuid::new_v4().to_string(),
+            local.translation.vector,
+            local.rotation,
+        )
+        .expect("UUID child names cannot conflict")
+    }
+
+    /// Creates an auto-named child frame that coincides with this frame moved by `isometry`,
+    /// where `isometry` is interpreted in this frame's own coordinates
+    /// (like [`Frame::apply_in_local_frame`]).
+    fn derive_child_in_local_frame(&self, isometry: &Isometry3<f64>) -> Self {
+        self.add_child(
+            Uuid::new_v4().to_string(),
+            isometry.translation.vector,
+            isometry.rotation,
+        )
+        .expect("UUID child names cannot conflict")
+    }
 }
 
+/// Creates a new auto-named child frame translated by `rhs`, interpreted in the
+/// parent frame of `self` (matching the `Pose` operator semantics).
 impl Add<LazyTranslation> for &Frame {
     type Output = Frame;
 
     fn add(self, rhs: LazyTranslation) -> Self::Output {
-        let auto_name = Uuid::new_v4().to_string();
-        let current_position = self.borrow().transform_to_parent.translation.vector;
-        let current_orientation = self.borrow().transform_to_parent.rotation;
-        let child = self
-            .add_child(auto_name, current_position, current_orientation)
-            .unwrap();
-        child.apply_in_parent_frame(&rhs.inner).unwrap();
-        child // Not sure yet what to do with errors
+        self.derive_child_in_parent_frame(&rhs.inner)
     }
 }
 
+/// Creates a new auto-named child frame translated by the inverse of `rhs`, interpreted
+/// in the parent frame of `self` (matching the `Pose` operator semantics).
 impl Sub<LazyTranslation> for &Frame {
     type Output = Frame;
 
     fn sub(self, rhs: LazyTranslation) -> Self::Output {
-        let auto_name = Uuid::new_v4().to_string();
-        let current_position = self.borrow().transform_to_parent.translation.vector;
-        let current_orientation = self.borrow().transform_to_parent.rotation;
-        let child = self
-            .add_child(auto_name, current_position, current_orientation)
-            .unwrap();
-        child.apply_in_parent_frame(&rhs.inner.inverse()).unwrap();
-        child // Not sure yet what to do with errors
+        self.derive_child_in_parent_frame(&rhs.inner.inverse())
     }
 }
 
+/// Creates a new auto-named child frame rotated by `rhs` about the axes of `self`
+/// (local frame, matching the `Pose` operator semantics).
 impl Mul<LazyRotation> for &Frame {
     type Output = Frame;
 
     fn mul(self, rhs: LazyRotation) -> Self::Output {
-        let auto_name = Uuid::new_v4().to_string();
-        let current_position = self.borrow().transform_to_parent.translation.vector;
-        let current_orientation = self.borrow().transform_to_parent.rotation;
-        let child = self
-            .add_child(auto_name, current_position, current_orientation)
-            .unwrap();
-        child.apply_in_local_frame(&rhs.inner).unwrap();
-        child // Not sure yet what to do with errors
+        self.derive_child_in_local_frame(&rhs.inner)
     }
 }
 
@@ -1061,9 +1076,7 @@ mod tests {
             epsilon = 1e-10
         );
         assert_relative_eq!(
-            transformation
-                .rotation
-                .angle_to(&desired_orientation),
+            transformation.rotation.angle_to(&desired_orientation),
             0.0,
             epsilon = 1e-10
         );
@@ -1181,14 +1194,20 @@ mod tests {
             epsilon = 1e-10
         );
 
+        // Chained operations accumulate in world coordinates.
         let result = &result - y(3.0);
+        let result_in_root = result
+            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
+            .in_frame(&root)
+            .unwrap()
+            .transformation();
         assert_relative_eq!(
-            result.transformation().unwrap().translation.vector,
+            result_in_root.translation.vector,
             Vector3::new(0.0, -3.0, 5.0),
             epsilon = 1e-10
         );
 
-        let (roll, pitch, yaw) = result.transformation().unwrap().rotation.euler_angles();
+        let (roll, pitch, yaw) = result_in_root.rotation.euler_angles();
         assert_relative_eq!(
             Vector3::new(roll, pitch, yaw),
             Vector3::new(0.0, 0.0, 0.0),
@@ -1224,6 +1243,55 @@ mod tests {
         assert_relative_eq!(
             Vector3::new(roll, pitch, yaw),
             Vector3::new(0.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_lazy_ops_on_non_identity_frame() {
+        use nalgebra::UnitQuaternion;
+
+        let root = Frame::new_origin("root");
+        let yaw_90 = UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2);
+        let child = root
+            .add_child("child", Vector3::new(1.0, 0.0, 0.0), yaw_90)
+            .unwrap();
+
+        // Translation is interpreted in the parent frame: the derived frame must sit at
+        // child + (0, 3, 0) in root coordinates, with unchanged orientation.
+        let shifted = &child + y(3.0);
+        let shifted_in_root = shifted
+            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
+            .in_frame(&root)
+            .unwrap()
+            .transformation();
+        assert_relative_eq!(
+            shifted_in_root.translation.vector,
+            Vector3::new(1.0, 3.0, 0.0),
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            shifted_in_root.rotation.angle_to(&yaw_90),
+            0.0,
+            epsilon = 1e-10
+        );
+
+        // Rotation is interpreted in the local frame: position unchanged, yaw doubled.
+        let rotated = &child * rz(std::f64::consts::FRAC_PI_2);
+        let rotated_in_root = rotated
+            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
+            .in_frame(&root)
+            .unwrap()
+            .transformation();
+        assert_relative_eq!(
+            rotated_in_root.translation.vector,
+            Vector3::new(1.0, 0.0, 0.0),
+            epsilon = 1e-10
+        );
+        let yaw_180 = UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::PI);
+        assert_relative_eq!(
+            rotated_in_root.rotation.angle_to(&yaw_180),
+            0.0,
             epsilon = 1e-10
         );
     }
