@@ -71,6 +71,23 @@ class Frame:
         binding_frame = self._core_frame.add_child(name, position._binding_structure, orientation._binding_structure)
         return Frame._from_rust(binding_frame)
 
+    def remove_child(self, name: str) -> Frame:
+        """Removes the child with the given name and detaches it from the tree.
+
+        The removed frame becomes a standalone root frame: its parent link is cleared
+        and its transform is reset to identity. Its own children stay attached to it.
+
+        Args:
+            name: The name of the child frame to remove.
+
+        Returns:
+            The removed (now detached) frame.
+
+        Raises:
+            ValueError: If no child with the given name exists.
+        """
+        return Frame._from_rust(self._core_frame.remove_child(name))
+
     def calibrate_child(
         self, name: str, desired_position: Vector3, desired_orientation: Rotation, reference_pose: Pose
     ) -> Frame:
