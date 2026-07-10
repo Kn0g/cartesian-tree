@@ -75,6 +75,23 @@ class Quaternion:
         """
         return self._core_rotation.as_quaternion()
 
+    def _canonical(self) -> tuple[float, float, float, float]:
+        """Returns the components with the sign chosen such that q and -q map to the same tuple."""
+        q = self.as_tuple()
+        for component in q:
+            if component != 0.0:
+                return q if component > 0.0 else (-q[0], -q[1], -q[2], -q[3])
+        return q
+
+    def __eq__(self, other: object) -> bool:
+        """Exact component-wise equality, treating q and -q as the same rotation."""
+        if not isinstance(other, Quaternion):
+            return NotImplemented
+        return self._canonical() == other._canonical()
+
+    def __hash__(self) -> int:
+        return hash(self._canonical())
+
     @classmethod
     def _from_rust(cls, rust_rotation: _core.Rotation) -> Quaternion:
         instance = cls.__new__(cls)

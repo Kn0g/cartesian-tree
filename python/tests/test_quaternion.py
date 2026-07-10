@@ -35,6 +35,15 @@ def test_quaternion_vector_part() -> None:
     assert vector == (0.0, 0.0, pytest.approx(0.707, abs=1e-3))
 
 
+def test_quaternion_equality_and_hash() -> None:
+    assert Quaternion(0.0, 0.0, 0.0, 1.0) == Quaternion(0.0, 0.0, 0.0, 1.0)
+    # q and -q represent the same rotation.
+    assert Quaternion(0.0, 0.0, 0.0, 1.0) == Quaternion(0.0, 0.0, 0.0, -1.0)
+    assert Quaternion(0.0, 0.0, 1.0, 0.0) != Quaternion(0.0, 0.0, 0.0, 1.0)
+    assert Quaternion(0.0, 0.0, 0.0, 1.0) != (0.0, 0.0, 0.0, 1.0)
+    assert len({Quaternion(0.0, 0.0, 0.0, 1.0), Quaternion(0.0, 0.0, 0.0, -1.0)}) == 1
+
+
 def test_quaternion_as_list() -> None:
     q = Quaternion(1.0, 2.0, 3.0, 4.0)
     q_list = q.as_list()
