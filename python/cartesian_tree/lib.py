@@ -16,6 +16,12 @@ class Frame:
 
     Each frame can have one parent and multiple children. The frame stores its
     transformation (position and orientation) relative to its parent.
+
+    Note on lifetimes: a frame owns its children but only weakly references its
+    parent. Keeping a child alive does not keep its ancestors alive: if the last
+    reference to an ancestor is garbage-collected, the frame becomes detached and
+    operations that need the parent chain raise a ValueError. Keep a reference to
+    the root frame alive for as long as the tree is in use.
     """
 
     def __init__(self, name: str) -> None:
