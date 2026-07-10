@@ -402,7 +402,7 @@ impl Frame {
         );
 
         let t_calibrated_to_parent =
-            t_pose_to_ancestor * desired_pose.inverse() * t_ancestor_to_parent;
+            t_ancestor_to_parent * t_pose_to_ancestor * desired_pose.inverse();
 
         self.add_child(
             name,
@@ -1017,6 +1017,55 @@ mod tests {
         );
         assert!(
             (calibrated_transformation.rotation.angle() - std::f64::consts::FRAC_PI_2).abs() < 1e-6
+        );
+    }
+
+    #[test]
+    fn test_calibrate_child_under_non_identity_parent() {
+        let root = Frame::new_origin("root");
+
+        // The parent of the calibrated frame is NOT the common ancestor and has a
+        // non-identity transform
+        let mount = root
+            .add_child(
+                "mount",
+                Vector3::new(0.0, 0.0, 1.0),
+                UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+            )
+            .unwrap();
+
+        let reference_pose = root.add_pose(
+            Vector3::new(1.0, 2.0, 3.0),
+            UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_4),
+        );
+
+        let desired_position = Vector3::new(0.5, 0.0, 0.0);
+        let desired_orientation =
+            UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2);
+
+        let calibrated = mount
+            .calibrate_child(
+                "calibrated",
+                desired_position,
+                desired_orientation,
+                &reference_pose,
+            )
+            .unwrap();
+
+        // The reference pose expressed in the calibrated frame must match the desired transform.
+        let pose_in_calibrated = reference_pose.in_frame(&calibrated).unwrap();
+        let transformation = pose_in_calibrated.transformation();
+        assert_relative_eq!(
+            transformation.translation.vector,
+            desired_position,
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            transformation
+                .rotation
+                .angle_to(&desired_orientation),
+            0.0,
+            epsilon = 1e-10
         );
     }
 
