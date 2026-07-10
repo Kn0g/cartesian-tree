@@ -42,7 +42,7 @@ pub(crate) struct FrameData {
     /// The name of the frame (must be unique among siblings).
     pub(crate) name: String,
     /// Reference to the parent frame.
-    parent: Option<Weak<RefCell<FrameData>>>,
+    parent: Option<Weak<RefCell<Self>>>,
     /// Transformation from this frame to its parent frame.
     transform_to_parent: Isometry3<f64>,
     /// Child frames directly connected to this frame.
@@ -56,7 +56,7 @@ struct SerialFrame {
     // Deserialized as a plain quaternion because nalgebra does not re-normalize
     // `UnitQuaternion`s on deserialization; validated in `apply_serial`.
     orientation: Quaternion<f64>,
-    children: Vec<SerialFrame>,
+    children: Vec<Self>,
 }
 
 impl Frame {
@@ -467,7 +467,7 @@ impl Frame {
     ///
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
-    /// - On deserialization failure.
+    /// - On serialization failure.
     pub fn to_json(&self) -> Result<String, CartesianTreeError> {
         let serial = self.to_serial();
         Ok(serde_json::to_string_pretty(&serial)?)

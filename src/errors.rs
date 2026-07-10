@@ -15,7 +15,7 @@ pub enum CartesianTreeError {
     #[error("Frame '{0}' is not an ancestor of '{1}'")]
     IsNoAncestor(String, String),
     #[error("Internal error: Weak pointer upgrade failed")]
-    WeakUpgradeFailed(),
+    WeakUpgradeFailed,
     #[error("Invalid quaternion (x={0}, y={1}, z={2}, w={3}): norm is too close to zero")]
     InvalidQuaternion(f64, f64, f64, f64),
     #[error("Serialization/Deserialization error: {0}")]
