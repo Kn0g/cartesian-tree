@@ -13,16 +13,19 @@ keywords = ["Cartesian", "coordinate-systems", "transform", "poses"]
 categories = ["mathematics", "data-structures"]
 
 [lints.clippy]
-all = "warn"
-style = "warn"
-pedantic = "warn"
-cargo = "warn"
-nursery = "warn"
+all = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
 missing_panics_doc = "warn"
 missing_errors_doc = "warn"
 missing_safety_doc = "warn"
 empty_line_after_outer_attr = "warn"
 empty_line_after_doc_comments = "warn"
+# Guards in this crate are already scoped as tightly as the borrow checker allows;
+# this nursery lint's suggestions frequently do not compile here.
+significant_drop_tightening = "allow"
 
 [dependencies]
 nalgebra = { version = "0.33.2", features = ["serde-serialize"] }
@@ -30,6 +33,7 @@ pyo3 = { version = "0.25.0", features = ["extension-module"] , optional = true}
 thiserror = "2.0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+slotmap = "1"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]

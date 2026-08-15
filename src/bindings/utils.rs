@@ -11,7 +11,7 @@ impl From<CartesianTreeError> for PyErr {
     }
 }
 
-#[pyclass(name = "Rotation", unsendable)]
+#[pyclass(name = "Rotation")]
 #[derive(Clone, Copy, Debug)]
 pub struct PyRotation {
     pub rust_rotation: Rotation,
@@ -69,7 +69,7 @@ impl PyRotation {
     }
 }
 
-#[pyclass(name = "Vector3", unsendable)]
+#[pyclass(name = "Vector3")]
 #[derive(Clone, Copy, Debug)]
 pub struct PyVector3 {
     pub inner: Vector3<f64>,
@@ -113,7 +113,7 @@ impl PyVector3 {
     }
 }
 
-#[pyclass(name = "Isometry", unsendable)]
+#[pyclass(name = "Isometry")]
 #[derive(Clone, Copy, Debug)]
 pub struct PyIsometry {
     pub inner: Isometry3<f64>,

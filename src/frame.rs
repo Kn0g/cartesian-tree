@@ -1,21 +1,205 @@
 use crate::CartesianTreeError;
 use crate::Pose;
-use crate::lazy_access::LazyRotation;
-use crate::lazy_access::LazyTranslation;
+use crate::lazy_access::{LazyRotation, LazyTranslation};
 use crate::rotation::{MIN_QUATERNION_NORM, Rotation};
-use crate::tree::Walking;
 use crate::tree::{HasChildren, HasParent, NodeEquality};
 
 use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion, Vector3};
-use std::cell::RefCell;
-use std::ops::Add;
-use std::ops::Mul;
-use std::ops::Sub;
-use std::rc::{Rc, Weak};
-
 use serde::{Deserialize, Serialize};
-use serde_json;
+use slotmap::SlotMap;
+use std::ops::{Add, Mul, Sub};
+use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
+
+slotmap::new_key_type! {
+    /// Generational key identifying a frame node in a tree arena. Stale keys (of removed
+    /// nodes) are detected by the generation counter and never alias a new node.
+    pub(crate) struct NodeKey;
+}
+
+/// A single frame node stored in a tree arena.
+#[derive(Debug)]
+struct Node {
+    /// The name of the frame (must be unique among siblings).
+    name: String,
+    /// The parent node, or `None` for the root.
+    parent: Option<NodeKey>,
+    /// Child nodes directly connected to this node.
+    children: Vec<NodeKey>,
+    /// Transformation from this frame to its parent frame.
+    transform_to_parent: Isometry3<f64>,
+}
+
+/// The arena storage shared by all frames and poses of one tree.
+#[derive(Debug)]
+pub(crate) struct TreeInner {
+    nodes: SlotMap<NodeKey, Node>,
+}
+
+pub(crate) type SharedTree = Arc<RwLock<TreeInner>>;
+
+/// Acquires the tree read lock, recovering from poisoning (a panicked writer).
+pub(crate) fn read_tree(tree: &SharedTree) -> RwLockReadGuard<'_, TreeInner> {
+    tree.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Acquires the tree write lock, recovering from poisoning (a panicked writer).
+pub(crate) fn write_tree(tree: &SharedTree) -> RwLockWriteGuard<'_, TreeInner> {
+    tree.write().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl TreeInner {
+    fn node(&self, key: NodeKey) -> Result<&Node, CartesianTreeError> {
+        self.nodes.get(key).ok_or(CartesianTreeError::FrameRemoved)
+    }
+
+    fn node_mut(&mut self, key: NodeKey) -> Result<&mut Node, CartesianTreeError> {
+        self.nodes
+            .get_mut(key)
+            .ok_or(CartesianTreeError::FrameRemoved)
+    }
+
+    pub(crate) fn contains(&self, key: NodeKey) -> bool {
+        self.nodes.contains_key(key)
+    }
+
+    pub(crate) fn name_of(&self, key: NodeKey) -> String {
+        self.nodes
+            .get(key)
+            .map_or_else(|| "<removed>".to_owned(), |node| node.name.clone())
+    }
+
+    fn add_child_node(
+        &mut self,
+        parent: NodeKey,
+        name: String,
+        transform: Isometry3<f64>,
+    ) -> Result<NodeKey, CartesianTreeError> {
+        let children = self.node(parent)?.children.clone();
+        if children
+            .iter()
+            .any(|&child| self.nodes.get(child).is_some_and(|node| node.name == name))
+        {
+            return Err(CartesianTreeError::ChildNameConflict(
+                name,
+                self.name_of(parent),
+            ));
+        }
+        let key = self.nodes.insert(Node {
+            name,
+            parent: Some(parent),
+            children: Vec::new(),
+            transform_to_parent: transform,
+        });
+        self.nodes[parent].children.push(key);
+        Ok(key)
+    }
+
+    fn remove_subtree(&mut self, key: NodeKey) {
+        if let Some(node) = self.nodes.remove(key) {
+            for child in node.children {
+                self.remove_subtree(child);
+            }
+        }
+    }
+
+    fn depth_of(&self, key: NodeKey) -> Result<usize, CartesianTreeError> {
+        let mut depth = 0;
+        let mut current = key;
+        while let Some(parent) = self.node(current)?.parent {
+            depth += 1;
+            current = parent;
+        }
+        Ok(depth)
+    }
+
+    /// Finds the lowest common ancestor of two nodes, or `None` if they are unconnected.
+    pub(crate) fn lca(
+        &self,
+        a: NodeKey,
+        b: NodeKey,
+    ) -> Result<Option<NodeKey>, CartesianTreeError> {
+        let mut own = a;
+        let mut other = b;
+        let mut own_depth = self.depth_of(own)?;
+        let mut other_depth = self.depth_of(other)?;
+
+        while own_depth > other_depth {
+            own = self.node(own)?.parent.expect("depth guarantees a parent");
+            own_depth -= 1;
+        }
+        while other_depth > own_depth {
+            other = self.node(other)?.parent.expect("depth guarantees a parent");
+            other_depth -= 1;
+        }
+        while own != other {
+            match (self.node(own)?.parent, self.node(other)?.parent) {
+                (Some(own_parent), Some(other_parent)) => {
+                    own = own_parent;
+                    other = other_parent;
+                }
+                _ => return Ok(None),
+            }
+        }
+        Ok(Some(own))
+    }
+
+    /// Accumulates the transformation from `start` (pre-composed with `start_offset`)
+    /// up to the ancestor `target`.
+    pub(crate) fn transform_up(
+        &self,
+        start: NodeKey,
+        start_offset: Isometry3<f64>,
+        target: NodeKey,
+    ) -> Result<Isometry3<f64>, CartesianTreeError> {
+        let mut transform = start_offset;
+        let mut current = start;
+        while current != target {
+            let node = self.node(current)?;
+            let Some(parent) = node.parent else {
+                return Err(CartesianTreeError::IsNoAncestor(
+                    self.name_of(target),
+                    self.name_of(start),
+                ));
+            };
+            transform = node.transform_to_parent * transform;
+            current = parent;
+        }
+        Ok(transform)
+    }
+}
+
+/// Identifies which kind of frame a handle refers to.
+#[derive(Clone, Debug)]
+pub(crate) enum FrameKind {
+    /// A regular frame stored in the tree arena.
+    Node(NodeKey),
+    /// A frame derived by the lazy operators: anchored to an arena node with a fixed
+    /// offset, but not stored in the arena itself. Derived frames are read-only.
+    Derived {
+        anchor: NodeKey,
+        offset: Isometry3<f64>,
+        name: String,
+    },
+}
+
+impl FrameKind {
+    /// The arena node this frame resolves transforms through.
+    pub(crate) const fn anchor(&self) -> NodeKey {
+        match self {
+            Self::Node(key) => *key,
+            Self::Derived { anchor, .. } => *anchor,
+        }
+    }
+
+    /// The fixed offset of this frame relative to its anchor node (identity for nodes).
+    pub(crate) fn offset(&self) -> Isometry3<f64> {
+        match self {
+            Self::Node(_) => Isometry3::identity(),
+            Self::Derived { offset, .. } => *offset,
+        }
+    }
+}
 
 /// Represents a coordinate frame in a Cartesian tree structure.
 ///
@@ -24,65 +208,36 @@ use uuid::Uuid;
 ///
 /// Root frames (created via `Frame::new_origin`) have no parent and use the identity transform.
 ///
-/// # Ownership and lifetimes
+/// # Ownership, lifetimes, and thread safety
 ///
-/// A frame owns its children but holds only a weak reference to its parent.
-/// Keeping a child alive therefore does **not** keep its ancestors alive: once the
-/// last owning handle to an ancestor is dropped, the frame becomes detached and
-/// operations that need the parent chain (e.g. [`Frame::transformation`],
-/// [`Pose::in_frame`]) return [`CartesianTreeError::ParentDropped`].
-/// Keep a handle to the root frame alive for as long as the tree is in use.
-#[derive(Clone, Debug)]
+/// All frames of a tree share ownership of a single tree arena: keeping any `Frame`
+/// (or [`Pose`]) handle alive keeps the whole tree alive, so a leaf handle is always
+/// enough to reach the root. Frames removed via [`Frame::remove_child`] become stale;
+/// operations on stale handles return [`CartesianTreeError::FrameRemoved`].
+///
+/// `Frame` is `Send + Sync` and can be shared freely across threads. All operations
+/// are synchronized through a tree-wide read/write lock, and every operation
+/// (including multi-frame computations like [`Pose::in_frame`]) sees a consistent
+/// snapshot of the tree.
+#[derive(Clone)]
 pub struct Frame {
-    pub(crate) data: Rc<RefCell<FrameData>>,
+    pub(crate) tree: SharedTree,
+    pub(crate) kind: FrameKind,
 }
 
-#[derive(Debug)]
-pub(crate) struct FrameData {
-    /// The name of the frame (must be unique among siblings).
-    pub(crate) name: String,
-    /// Reference to the parent frame.
-    parent: ParentLink,
-    /// Transformation from this frame to its parent frame.
-    transform_to_parent: Isometry3<f64>,
-    /// Child frames directly connected to this frame.
-    children: Vec<Frame>,
-}
-
-/// Link from a frame to its parent, encoding the ownership relation.
-#[derive(Debug)]
-enum ParentLink {
-    /// Root frame: has no parent.
-    None,
-    /// Regular child: the parent owns this frame through its child list, so only a weak
-    /// back-reference is held. It dangles if the parent is dropped (the frame is then
-    /// "detached", see [`CartesianTreeError::ParentDropped`]).
-    Registered(Weak<RefCell<FrameData>>),
-    /// Derived (unregistered) frame created by the lazy operators: not owned by the
-    /// parent's child list, so it keeps its parent alive instead. No reference cycle can
-    /// occur because a parent never references a derived child back.
-    Derived(Rc<RefCell<FrameData>>),
-}
-
-impl ParentLink {
-    const fn is_none(&self) -> bool {
-        matches!(self, Self::None)
+impl std::fmt::Debug for Frame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Deliberately does not lock the tree, so Debug is safe in any context.
+        f.debug_struct("Frame")
+            .field("kind", &self.kind)
+            .finish_non_exhaustive()
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct SerialFrame {
-    name: String,
-    position: Vector3<f64>,
-    // Deserialized as a plain quaternion because nalgebra does not re-normalize
-    // `UnitQuaternion`s on deserialization; validated in `apply_serial`.
-    orientation: Quaternion<f64>,
-    children: Vec<Self>,
 }
 
 impl Frame {
     /// Creates a new root frame (origin) with the given name.
     ///
+    /// This allocates a new tree; all frames added below the root share it.
     /// The origin has no parent and uses the identity transform.
     /// # Arguments
     /// - `name`: The name of the root frame.
@@ -94,77 +249,47 @@ impl Frame {
     /// let origin = Frame::new_origin("world");
     /// ```
     pub fn new_origin(name: impl Into<String>) -> Self {
+        let mut nodes = SlotMap::with_key();
+        let root = nodes.insert(Node {
+            name: name.into(),
+            parent: None,
+            children: Vec::new(),
+            transform_to_parent: Isometry3::identity(),
+        });
         Self {
-            data: Rc::new(RefCell::new(FrameData {
-                name: name.into(),
-                parent: ParentLink::None,
-                children: Vec::new(),
-                transform_to_parent: Isometry3::identity(),
-            })),
+            tree: Arc::new(RwLock::new(TreeInner { nodes })),
+            kind: FrameKind::Node(root),
         }
     }
 
-    pub(crate) fn borrow(&self) -> std::cell::Ref<'_, FrameData> {
-        self.data.borrow()
+    fn read(&self) -> RwLockReadGuard<'_, TreeInner> {
+        read_tree(&self.tree)
     }
 
-    fn borrow_mut(&self) -> std::cell::RefMut<'_, FrameData> {
-        self.data.borrow_mut()
+    fn write(&self) -> RwLockWriteGuard<'_, TreeInner> {
+        write_tree(&self.tree)
     }
 
-    pub(crate) fn downgrade(&self) -> Weak<RefCell<FrameData>> {
-        Rc::downgrade(&self.data)
-    }
-
-    /// Returns `Ok(true)` if the frame has a live parent and `Ok(false)` if it is a root frame.
-    ///
-    /// # Errors
-    /// Returns [`CartesianTreeError::ParentDropped`] if the frame had a parent that has
-    /// been dropped (the frame is detached from its tree).
-    fn has_live_parent(&self) -> Result<bool, CartesianTreeError> {
-        match &self.borrow().parent {
-            ParentLink::None => Ok(false),
-            ParentLink::Derived(_) => Ok(true),
-            ParentLink::Registered(weak) if weak.upgrade().is_some() => Ok(true),
-            ParentLink::Registered(_) => Err(CartesianTreeError::ParentDropped(self.name())),
+    /// Returns the key of this frame if it is a regular (non-derived) frame,
+    /// or a [`CartesianTreeError::DerivedFrameUnsupported`] error otherwise.
+    fn node_key(&self) -> Result<NodeKey, CartesianTreeError> {
+        match &self.kind {
+            FrameKind::Node(key) => Ok(*key),
+            FrameKind::Derived { name, .. } => {
+                Err(CartesianTreeError::DerivedFrameUnsupported(name.clone()))
+            }
         }
-    }
-
-    pub(crate) fn walk_up_and_transform(
-        &self,
-        target: &Self,
-    ) -> Result<Isometry3<f64>, CartesianTreeError> {
-        let mut transform = Isometry3::identity();
-        let mut current = self.clone();
-
-        while !current.is_same(target) {
-            let transform_to_its_parent = {
-                // Scope borrow
-                let current_data = current.borrow();
-
-                // If current frame is root and not target, then target is not an ancestor.
-                if current_data.parent.is_none() {
-                    return Err(CartesianTreeError::IsNoAncestor(target.name(), self.name()));
-                }
-                current_data.transform_to_parent
-            };
-
-            transform = transform_to_its_parent * transform;
-
-            // The parent reference exists (checked above), so failing to upgrade it
-            // means the parent frame has been dropped.
-            let parent_frame_opt = current.parent();
-            current = parent_frame_opt
-                .ok_or_else(|| CartesianTreeError::ParentDropped(current.name()))?;
-        }
-
-        Ok(transform)
     }
 
     /// Returns the name of the frame.
+    ///
+    /// Returns `"<removed>"` for stale handles whose frame has been removed from the tree.
     #[must_use]
     pub fn name(&self) -> String {
-        self.borrow().name.clone()
+        match &self.kind {
+            FrameKind::Node(key) => self.read().name_of(*key),
+            FrameKind::Derived { name, .. } => name.clone(),
+        }
     }
 
     /// Returns the transformation from this frame to its parent frame.
@@ -175,35 +300,57 @@ impl Frame {
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - The frame has no parent.
+    /// - The frame has been removed from its tree.
     pub fn transformation(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
-        if !self.has_live_parent()? {
-            return Err(CartesianTreeError::RootHasNoParent(self.name()));
+        match &self.kind {
+            FrameKind::Node(key) => {
+                let guard = self.read();
+                let node = guard.node(*key)?;
+                if node.parent.is_none() {
+                    return Err(CartesianTreeError::RootHasNoParent(node.name.clone()));
+                }
+                Ok(node.transform_to_parent)
+            }
+            FrameKind::Derived { offset, .. } => Ok(*offset),
         }
-        Ok(self.borrow().transform_to_parent)
+    }
+
+    /// Returns the transformation of this frame relative to its parent, where root
+    /// frames report identity (unlike [`Frame::transformation`], which errors).
+    fn local_transform(&self) -> Result<Isometry3<f64>, CartesianTreeError> {
+        match &self.kind {
+            FrameKind::Node(key) => Ok(self.read().node(*key)?.transform_to_parent),
+            FrameKind::Derived { offset, .. } => Ok(*offset),
+        }
     }
 
     /// Returns the position of this frame relative to its parent frame.
     ///
     /// # Returns
-    /// The position of the frame in its parent frame.
-    #[must_use]
-    pub fn position(&self) -> Vector3<f64> {
-        self.borrow().transform_to_parent.translation.vector
+    /// The position of the frame in its parent frame (zero for root frames).
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has been removed from its tree.
+    pub fn position(&self) -> Result<Vector3<f64>, CartesianTreeError> {
+        Ok(self.local_transform()?.translation.vector)
     }
 
     /// Returns the orientation of this frame relative to its parent frame.
     ///
     /// # Returns
-    /// The orientation of the frame in its parent frame.
-    #[must_use]
-    pub fn orientation(&self) -> Rotation {
-        self.borrow().transform_to_parent.rotation.into()
+    /// The orientation of the frame in its parent frame (identity for root frames).
+    ///
+    /// # Errors
+    /// Returns a [`CartesianTreeError`] if:
+    /// - The frame has been removed from its tree.
+    pub fn orientation(&self) -> Result<Rotation, CartesianTreeError> {
+        Ok(self.local_transform()?.rotation.into())
     }
 
     /// Sets the frame's transformation relative to its parent.
     ///
     /// This method modifies the frame's position and orientation relative to its parent frame.
-    /// It fails if the frame is a root frame (i.e., has no parent).
     ///
     /// # Arguments
     /// - `position`: A 3D vector representing the new translational offset from the parent.
@@ -215,6 +362,8 @@ impl Frame {
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - The frame has no parent (i.e., the root frame).
+    /// - The frame has been removed from its tree.
+    /// - The frame is a derived frame (derived frames are read-only).
     ///
     /// # Example
     /// ```
@@ -233,20 +382,16 @@ impl Frame {
         position: Vector3<f64>,
         orientation: impl Into<Rotation>,
     ) -> Result<(), CartesianTreeError> {
-        if !self.has_live_parent()? {
-            return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
-        }
-        self.borrow_mut().transform_to_parent = Isometry3::from_parts(
+        let transform = Isometry3::from_parts(
             Translation3::from(position),
             orientation.into().as_quaternion(),
         );
-        Ok(())
+        self.update_transform(|_| transform)
     }
 
     /// Applies the provided isometry interpreted in the parent frame to this frame.
     ///
     /// This method modifies the frame's position and orientation relative to its current position and orientation.
-    /// It fails if the frame is a root frame (i.e., has no parent).
     ///
     /// # Arguments
     /// - `isometry`: The isometry (describing a motion in the parent frame coordinates) to apply to the current transformation.
@@ -257,6 +402,8 @@ impl Frame {
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - The frame has no parent (i.e., the root frame).
+    /// - The frame has been removed from its tree.
+    /// - The frame is a derived frame (derived frames are read-only).
     ///
     /// # Example
     /// ```
@@ -275,18 +422,12 @@ impl Frame {
         &self,
         isometry: &Isometry3<f64>,
     ) -> Result<(), CartesianTreeError> {
-        if !self.has_live_parent()? {
-            return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
-        }
-        let mut borrow = self.borrow_mut();
-        borrow.transform_to_parent = isometry * borrow.transform_to_parent;
-        Ok(())
+        self.update_transform(|current| isometry * current)
     }
 
     /// Applies the provided isometry interpreted in this frame to this frame.
     ///
     /// This method modifies the frame's position and orientation relative to its current position and orientation.
-    /// It fails if the frame is a root frame (i.e., has no parent).
     ///
     /// # Arguments
     /// - `isometry`: The isometry (describing a motion in this frame) to apply to the current transformation.
@@ -297,6 +438,8 @@ impl Frame {
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - The frame has no parent (i.e., the root frame).
+    /// - The frame has been removed from its tree.
+    /// - The frame is a derived frame (derived frames are read-only).
     ///
     /// # Example
     /// ```
@@ -315,11 +458,23 @@ impl Frame {
         &self,
         isometry: &Isometry3<f64>,
     ) -> Result<(), CartesianTreeError> {
-        if !self.has_live_parent()? {
-            return Err(CartesianTreeError::CannotUpdateRootTransform(self.name()));
+        self.update_transform(|current| current * isometry)
+    }
+
+    /// Applies `update` to this frame's transform-to-parent under the write lock.
+    fn update_transform(
+        &self,
+        update: impl FnOnce(Isometry3<f64>) -> Isometry3<f64>,
+    ) -> Result<(), CartesianTreeError> {
+        let key = self.node_key()?;
+        let mut guard = self.write();
+        let node = guard.node_mut(key)?;
+        if node.parent.is_none() {
+            return Err(CartesianTreeError::CannotUpdateRootTransform(
+                node.name.clone(),
+            ));
         }
-        let mut borrow = self.borrow_mut();
-        borrow.transform_to_parent *= isometry;
+        node.transform_to_parent = update(node.transform_to_parent);
         Ok(())
     }
 
@@ -340,6 +495,8 @@ impl Frame {
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - A child with the same name already exists.
+    /// - The frame has been removed from its tree.
+    /// - The frame is a derived frame.
     ///
     /// # Example
     /// ```
@@ -357,53 +514,31 @@ impl Frame {
         position: Vector3<f64>,
         orientation: impl Into<Rotation>,
     ) -> Result<Self, CartesianTreeError> {
-        let child_name = name.into();
-        {
-            let frame = self.borrow();
-            if frame
-                .children
-                .iter()
-                .any(|child| child.borrow().name == child_name)
-            {
-                return Err(CartesianTreeError::ChildNameConflict(
-                    child_name,
-                    self.name(),
-                ));
-            }
-        }
+        let key = self.node_key()?;
         let transform = Isometry3::from_parts(
             Translation3::from(position),
             orientation.into().as_quaternion(),
         );
-
-        let child = Self {
-            data: Rc::new(RefCell::new(FrameData {
-                name: child_name,
-                parent: ParentLink::Registered(Rc::downgrade(&self.data)),
-                children: Vec::new(),
-                transform_to_parent: transform,
-            })),
-        };
-
-        self.borrow_mut().children.push(child.clone());
-        Ok(child)
+        let child_key = self.write().add_child_node(key, name.into(), transform)?;
+        Ok(Self {
+            tree: Arc::clone(&self.tree),
+            kind: FrameKind::Node(child_key),
+        })
     }
 
-    /// Removes the child with the given name from this frame and detaches it.
+    /// Removes the child with the given name and its entire subtree from the tree.
     ///
-    /// The removed frame becomes a standalone root: its parent reference is cleared and its
-    /// transform is reset to identity. Frames below it stay attached to it, so the whole
-    /// subtree can be kept alive through the returned handle — or dropped by discarding it.
+    /// Existing handles to removed frames become stale and return
+    /// [`CartesianTreeError::FrameRemoved`] when used.
     ///
     /// # Arguments
     /// - `name`: The name of the child frame to remove.
     ///
-    /// # Returns
-    /// The removed (now detached) frame.
-    ///
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - No child with the given name exists.
+    /// - The frame has been removed from its tree.
+    /// - The frame is a derived frame.
     ///
     /// # Example
     /// ```
@@ -415,24 +550,23 @@ impl Frame {
     /// let _ = root
     ///     .add_child("camera", Vector3::new(0.0, 0.0, 1.0), UnitQuaternion::identity())
     ///     .unwrap();
-    /// let removed = root.remove_child("camera").unwrap();
+    /// root.remove_child("camera").unwrap();
     /// assert!(root.children().is_empty());
     /// ```
-    pub fn remove_child(&self, name: &str) -> Result<Self, CartesianTreeError> {
-        let index = self
-            .borrow()
-            .children
+    pub fn remove_child(&self, name: &str) -> Result<(), CartesianTreeError> {
+        let key = self.node_key()?;
+        let mut guard = self.write();
+        let children = guard.node(key)?.children.clone();
+        let child_key = children
             .iter()
-            .position(|child| child.borrow().name == name)
-            .ok_or_else(|| CartesianTreeError::ChildNotFound(name.to_string(), self.name()))?;
-
-        let child = self.borrow_mut().children.remove(index);
-        {
-            let mut child_data = child.borrow_mut();
-            child_data.parent = ParentLink::None;
-            child_data.transform_to_parent = Isometry3::identity();
-        }
-        Ok(child)
+            .copied()
+            .find(|&child| guard.nodes.get(child).is_some_and(|node| node.name == name))
+            .ok_or_else(|| {
+                CartesianTreeError::ChildNotFound(name.to_owned(), guard.name_of(key))
+            })?;
+        guard.node_mut(key)?.children.retain(|&c| c != child_key);
+        guard.remove_subtree(child_key);
+        Ok(())
     }
 
     /// Adds a new child frame calibrated such that a reference pose, when expressed in the new frame,
@@ -449,9 +583,10 @@ impl Frame {
     ///
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
-    /// - The reference frame is invalid.
+    /// - The reference pose belongs to a different tree or its frame has been removed.
     /// - No common ancestor exists.
     /// - A child with the same name already exists.
+    /// - The frame is a derived frame.
     ///
     /// # Example
     /// ```
@@ -474,34 +609,44 @@ impl Frame {
         desired_orientation: impl Into<Rotation>,
         reference_pose: &Pose,
     ) -> Result<Self, CartesianTreeError> {
-        let reference_frame = reference_pose.frame().ok_or_else(|| {
-            CartesianTreeError::FrameDropped("Reference pose frame has been dropped".to_string())
-        })?;
-
-        let ancestor = self.lca_with(&reference_frame).ok_or_else(|| {
-            CartesianTreeError::NoCommonAncestor(self.name(), reference_frame.name())
-        })?;
-
-        let t_reference_to_ancestor = reference_frame.walk_up_and_transform(&ancestor)?;
-        let t_pose_to_reference = reference_pose.transformation();
-        let t_pose_to_ancestor = t_reference_to_ancestor * t_pose_to_reference;
-
-        let t_parent_to_ancestor = self.walk_up_and_transform(&ancestor)?;
-        let t_ancestor_to_parent = t_parent_to_ancestor.inverse();
+        let key = self.node_key()?;
+        if !Arc::ptr_eq(&self.tree, &reference_pose.tree) {
+            return Err(CartesianTreeError::DifferentTrees(
+                self.name(),
+                reference_pose
+                    .frame()
+                    .map_or_else(|| "<removed>".to_owned(), |frame| frame.name()),
+            ));
+        }
 
         let desired_pose = Isometry3::from_parts(
             Translation3::from(desired_position),
             desired_orientation.into().as_quaternion(),
         );
 
-        let t_calibrated_to_parent =
-            t_ancestor_to_parent * t_pose_to_ancestor * desired_pose.inverse();
+        let mut guard = self.write();
+        let reference_anchor = reference_pose.anchor.anchor();
+        let ancestor = guard.lca(key, reference_anchor)?.ok_or_else(|| {
+            CartesianTreeError::NoCommonAncestor(
+                guard.name_of(key),
+                guard.name_of(reference_anchor),
+            )
+        })?;
 
-        self.add_child(
-            name,
-            t_calibrated_to_parent.translation.vector,
-            t_calibrated_to_parent.rotation,
-        )
+        let t_pose_to_reference_anchor =
+            reference_pose.anchor.offset() * reference_pose.transformation();
+        let t_pose_to_ancestor =
+            guard.transform_up(reference_anchor, t_pose_to_reference_anchor, ancestor)?;
+        let t_parent_to_ancestor = guard.transform_up(key, Isometry3::identity(), ancestor)?;
+
+        let t_calibrated_to_parent =
+            t_parent_to_ancestor.inverse() * t_pose_to_ancestor * desired_pose.inverse();
+
+        let child_key = guard.add_child_node(key, name.into(), t_calibrated_to_parent)?;
+        Ok(Self {
+            tree: Arc::clone(&self.tree),
+            kind: FrameKind::Node(child_key),
+        })
     }
 
     /// Adds a pose to the current frame.
@@ -522,7 +667,12 @@ impl Frame {
     /// let pose = frame.add_pose(Vector3::new(0.5, 0.0, 0.0), UnitQuaternion::identity());
     /// ```
     pub fn add_pose(&self, position: Vector3<f64>, orientation: impl Into<Rotation>) -> Pose {
-        Pose::new(self.downgrade(), position, orientation)
+        Pose::new(
+            Arc::clone(&self.tree),
+            self.kind.clone(),
+            position,
+            orientation,
+        )
     }
 
     /// Serializes the frame tree to a JSON string.
@@ -536,30 +686,12 @@ impl Frame {
     /// # Errors
     /// Returns a [`CartesianTreeError`] if:
     /// - On serialization failure.
+    /// - The frame has been removed from its tree, or is a derived frame.
     pub fn to_json(&self) -> Result<String, CartesianTreeError> {
-        let serial = self.to_serial();
+        let key = self.node_key()?;
+        let guard = self.read();
+        let serial = to_serial(&guard, key)?;
         Ok(serde_json::to_string_pretty(&serial)?)
-    }
-
-    /// Helper function to convert the frame and its children recursively into a serializable structure.
-    ///
-    /// This is used internally for JSON serialization.
-    fn to_serial(&self) -> SerialFrame {
-        let (position, orientation) = if self.parent().is_some() {
-            let iso = self
-                .transformation()
-                .unwrap_or_else(|_| Isometry3::identity());
-            (iso.translation.vector, iso.rotation.into_inner())
-        } else {
-            (Vector3::zeros(), Quaternion::identity())
-        };
-
-        SerialFrame {
-            name: self.name(),
-            position,
-            orientation,
-            children: self.children().into_iter().map(|c| c.to_serial()).collect(),
-        }
     }
 
     /// Applies a JSON config to this frame tree by updating matching transforms.
@@ -579,122 +711,174 @@ impl Frame {
     /// - On deserialization failure.
     /// - The frame names do not match at the root.
     /// - An orientation in the config has a norm too close to zero to normalize.
+    /// - The frame has been removed from its tree, or is a derived frame.
     ///
     pub fn apply_config(&self, json: &str) -> Result<(), CartesianTreeError> {
+        let key = self.node_key()?;
         let serial: SerialFrame = serde_json::from_str(json)?;
-        self.apply_serial(&serial)
+        let mut guard = self.write();
+        apply_serial(&mut guard, key, &serial)
     }
 
-    fn apply_serial(&self, serial: &SerialFrame) -> Result<(), CartesianTreeError> {
-        if self.name() != serial.name {
-            return Err(CartesianTreeError::Mismatch(format!(
-                "Frame names do not match: {} vs {}",
-                self.name(),
-                serial.name
-            )));
-        }
-
-        // only update if frame has parent
-        if self.parent().is_some() {
-            let orientation = UnitQuaternion::try_new(serial.orientation, MIN_QUATERNION_NORM)
-                .ok_or_else(|| {
-                    let q = &serial.orientation;
-                    CartesianTreeError::InvalidQuaternion(q.i, q.j, q.k, q.w)
-                })?;
-            self.set(serial.position, orientation)?;
-        }
-
-        for potential_child in &serial.children {
-            if let Some(child) = self
-                .children()
-                .into_iter()
-                .find(|c| c.name() == potential_child.name)
-            {
-                child.apply_serial(potential_child)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Creates an auto-named frame that references this frame as its parent without being
-    /// registered in this frame's child list.
-    ///
-    /// Used by the lazy operators: derived frames resolve transforms through the parent
-    /// chain like any other frame, but do not appear in [`Frame::children`] or in the
-    /// serialized tree, and are freed once the last handle to them is dropped.
-    ///
-    /// Unlike regular frames, a derived frame keeps its parent (and thus the chain up to
-    /// the root) alive, so chained derivations stay valid even if intermediate handles
-    /// are dropped.
-    fn new_unregistered_child(&self, transform_to_parent: Isometry3<f64>) -> Self {
-        Self {
-            data: Rc::new(RefCell::new(FrameData {
-                name: Uuid::new_v4().to_string(),
-                parent: ParentLink::Derived(Rc::clone(&self.data)),
-                children: Vec::new(),
-                transform_to_parent,
-            })),
-        }
-    }
-
-    /// Creates an auto-named, unregistered child frame that coincides with this frame moved
-    /// by `isometry`, where `isometry` is interpreted in this frame's parent coordinates
+    /// Creates a derived frame that coincides with this frame moved by `isometry`,
+    /// where `isometry` is interpreted in this frame's parent coordinates
     /// (like [`Frame::apply_in_parent_frame`]).
     ///
     /// For root frames, the parent coordinates are the root's own coordinates.
-    fn derive_child_in_parent_frame(&self, isometry: &Isometry3<f64>) -> Self {
-        // The child's transform is relative to this frame, so conjugate the parent-frame
-        // motion by this frame's own transform (identity for roots).
-        let transform_to_parent = self.borrow().transform_to_parent;
-        let local = transform_to_parent.inverse() * isometry * transform_to_parent;
-        self.new_unregistered_child(local)
+    fn derive_in_parent_frame(&self, isometry: &Isometry3<f64>) -> Self {
+        let (anchor, offset) = match &self.kind {
+            FrameKind::Node(key) => {
+                // The derived frame is anchored to this node, so conjugate the
+                // parent-frame motion by this node's own transform (identity for roots).
+                let transform = self
+                    .read()
+                    .nodes
+                    .get(*key)
+                    .map_or_else(Isometry3::identity, |node| node.transform_to_parent);
+                (*key, transform.inverse() * isometry * transform)
+            }
+            FrameKind::Derived { anchor, offset, .. } => (*anchor, isometry * offset),
+        };
+        Self {
+            tree: Arc::clone(&self.tree),
+            kind: FrameKind::Derived {
+                anchor,
+                offset,
+                name: Uuid::new_v4().to_string(),
+            },
+        }
     }
 
-    /// Creates an auto-named, unregistered child frame that coincides with this frame moved
-    /// by `isometry`, where `isometry` is interpreted in this frame's own coordinates
+    /// Creates a derived frame that coincides with this frame moved by `isometry`,
+    /// where `isometry` is interpreted in this frame's own coordinates
     /// (like [`Frame::apply_in_local_frame`]).
-    fn derive_child_in_local_frame(&self, isometry: &Isometry3<f64>) -> Self {
-        self.new_unregistered_child(*isometry)
+    fn derive_in_local_frame(&self, isometry: &Isometry3<f64>) -> Self {
+        let (anchor, offset) = match &self.kind {
+            FrameKind::Node(key) => (*key, *isometry),
+            FrameKind::Derived { anchor, offset, .. } => (*anchor, offset * isometry),
+        };
+        Self {
+            tree: Arc::clone(&self.tree),
+            kind: FrameKind::Derived {
+                anchor,
+                offset,
+                name: Uuid::new_v4().to_string(),
+            },
+        }
     }
 }
 
-/// Creates a new auto-named frame translated by `rhs`, interpreted in the
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SerialFrame {
+    name: String,
+    position: Vector3<f64>,
+    // Deserialized as a plain quaternion because nalgebra does not re-normalize
+    // `UnitQuaternion`s on deserialization; validated in `apply_serial`.
+    orientation: Quaternion<f64>,
+    children: Vec<Self>,
+}
+
+fn to_serial(inner: &TreeInner, key: NodeKey) -> Result<SerialFrame, CartesianTreeError> {
+    let node = inner.node(key)?;
+    let (position, orientation) = if node.parent.is_some() {
+        (
+            node.transform_to_parent.translation.vector,
+            node.transform_to_parent.rotation.into_inner(),
+        )
+    } else {
+        (Vector3::zeros(), Quaternion::identity())
+    };
+    Ok(SerialFrame {
+        name: node.name.clone(),
+        position,
+        orientation,
+        children: node
+            .children
+            .iter()
+            .map(|&child| to_serial(inner, child))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn apply_serial(
+    inner: &mut TreeInner,
+    key: NodeKey,
+    serial: &SerialFrame,
+) -> Result<(), CartesianTreeError> {
+    let node = inner.node(key)?;
+    if node.name != serial.name {
+        return Err(CartesianTreeError::Mismatch(format!(
+            "Frame names do not match: {} vs {}",
+            node.name, serial.name
+        )));
+    }
+
+    // only update if frame has parent
+    if node.parent.is_some() {
+        let orientation = UnitQuaternion::try_new(serial.orientation, MIN_QUATERNION_NORM)
+            .ok_or_else(|| {
+                let q = &serial.orientation;
+                CartesianTreeError::InvalidQuaternion(q.i, q.j, q.k, q.w)
+            })?;
+        inner.node_mut(key)?.transform_to_parent =
+            Isometry3::from_parts(Translation3::from(serial.position), orientation);
+    }
+
+    for potential_child in &serial.children {
+        let children = inner.node(key)?.children.clone();
+        let matching = children.iter().copied().find(|&child| {
+            inner
+                .nodes
+                .get(child)
+                .is_some_and(|node| node.name == potential_child.name)
+        });
+        if let Some(child_key) = matching {
+            apply_serial(inner, child_key, potential_child)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Creates a new derived frame translated by `rhs`, interpreted in the
 /// parent frame of `self` (matching the `Pose` operator semantics).
 ///
-/// The derived frame resolves transforms through `self` but is not registered as a child:
-/// it does not appear in `children()` or serialization and is freed when dropped.
+/// The derived frame resolves transforms through `self` but is not stored in the tree:
+/// it does not appear in `children()` or serialization, is read-only, and is freed when
+/// dropped.
 impl Add<LazyTranslation> for &Frame {
     type Output = Frame;
 
     fn add(self, rhs: LazyTranslation) -> Self::Output {
-        self.derive_child_in_parent_frame(&rhs.inner)
+        self.derive_in_parent_frame(&rhs.inner)
     }
 }
 
-/// Creates a new auto-named frame translated by the inverse of `rhs`, interpreted
+/// Creates a new derived frame translated by the inverse of `rhs`, interpreted
 /// in the parent frame of `self` (matching the `Pose` operator semantics).
 ///
-/// The derived frame resolves transforms through `self` but is not registered as a child:
-/// it does not appear in `children()` or serialization and is freed when dropped.
+/// The derived frame resolves transforms through `self` but is not stored in the tree:
+/// it does not appear in `children()` or serialization, is read-only, and is freed when
+/// dropped.
 impl Sub<LazyTranslation> for &Frame {
     type Output = Frame;
 
     fn sub(self, rhs: LazyTranslation) -> Self::Output {
-        self.derive_child_in_parent_frame(&rhs.inner.inverse())
+        self.derive_in_parent_frame(&rhs.inner.inverse())
     }
 }
 
-/// Creates a new auto-named frame rotated by `rhs` about the axes of `self`
+/// Creates a new derived frame rotated by `rhs` about the axes of `self`
 /// (local frame, matching the `Pose` operator semantics).
 ///
-/// The derived frame resolves transforms through `self` but is not registered as a child:
-/// it does not appear in `children()` or serialization and is freed when dropped.
+/// The derived frame resolves transforms through `self` but is not stored in the tree:
+/// it does not appear in `children()` or serialization, is read-only, and is freed when
+/// dropped.
 impl Mul<LazyRotation> for &Frame {
     type Output = Frame;
 
     fn mul(self, rhs: LazyRotation) -> Self::Output {
-        self.derive_child_in_local_frame(&rhs.inner)
+        self.derive_in_local_frame(&rhs.inner)
     }
 }
 
@@ -702,26 +886,56 @@ impl HasParent for Frame {
     type Node = Self;
 
     fn parent(&self) -> Option<Self::Node> {
-        match &self.borrow().parent {
-            ParentLink::None => None,
-            ParentLink::Registered(weak) => weak.upgrade().map(|data| Self { data }),
-            ParentLink::Derived(rc) => Some(Self {
-                data: Rc::clone(rc),
-            }),
-        }
+        let guard = self.read();
+        let parent_key = match &self.kind {
+            FrameKind::Node(key) => guard.nodes.get(*key)?.parent?,
+            FrameKind::Derived { anchor, .. } => {
+                if !guard.contains(*anchor) {
+                    return None;
+                }
+                *anchor
+            }
+        };
+        drop(guard);
+        Some(Self {
+            tree: Arc::clone(&self.tree),
+            kind: FrameKind::Node(parent_key),
+        })
     }
 }
 
 impl NodeEquality for Frame {
     fn is_same(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.data, &other.data)
+        if !Arc::ptr_eq(&self.tree, &other.tree) {
+            return false;
+        }
+        match (&self.kind, &other.kind) {
+            (FrameKind::Node(own), FrameKind::Node(other)) => own == other,
+            (FrameKind::Derived { name: own, .. }, FrameKind::Derived { name: other, .. }) => {
+                own == other
+            }
+            _ => false,
+        }
     }
 }
 
 impl HasChildren for Frame {
     type Node = Self;
     fn children(&self) -> Vec<Self> {
-        self.borrow().children.clone()
+        let FrameKind::Node(key) = &self.kind else {
+            return Vec::new();
+        };
+        let guard = self.read();
+        let Some(node) = guard.nodes.get(*key) else {
+            return Vec::new();
+        };
+        node.children
+            .iter()
+            .map(|&child| Self {
+                tree: Arc::clone(&self.tree),
+                kind: FrameKind::Node(child),
+            })
+            .collect()
     }
 }
 
@@ -730,16 +944,23 @@ mod tests {
     use crate::lazy_access::{rx, ry, rz, x, y, z};
 
     use super::*;
+    use crate::tree::Walking;
     use approx::assert_relative_eq;
     use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
+    fn frame_and_pose_are_send_and_sync() {
+        const fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Frame>();
+        assert_send_sync::<Pose>();
+    }
+
+    #[test]
     fn create_origin_frame() {
         let root = Frame::new_origin("world");
-        let root_borrow = root.borrow();
-        assert_eq!(root_borrow.name, "world");
-        assert!(root_borrow.parent.is_none());
-        assert_eq!(root_borrow.children.len(), 0);
+        assert_eq!(root.name(), "world");
+        assert!(root.parent().is_none());
+        assert!(root.children().is_empty());
     }
 
     #[test]
@@ -753,14 +974,8 @@ mod tests {
             )
             .unwrap();
 
-        let root_borrow = root.borrow();
-        assert_eq!(root_borrow.children.len(), 1);
-
-        let child_borrow = child.borrow();
-        assert_eq!(child_borrow.name, "dummy");
-        assert!(!child_borrow.parent.is_none());
-        drop(child_borrow);
-
+        assert_eq!(root.children().len(), 1);
+        assert_eq!(child.name(), "dummy");
         assert_eq!(child.parent().unwrap().name(), "world");
     }
 
@@ -775,10 +990,9 @@ mod tests {
             )
             .unwrap();
 
-        let child_borrow = child.borrow();
-        assert_eq!(child_borrow.name, "dummy");
+        assert_eq!(child.name(), "dummy");
 
-        let rotation = child_borrow.transform_to_parent.rotation;
+        let rotation = child.transformation().unwrap().rotation;
         let expected = UnitQuaternion::from_euler_angles(0.0, 0.0, std::f64::consts::FRAC_PI_2);
         assert!((rotation.angle() - expected.angle()).abs() < 1e-10);
     }
@@ -798,9 +1012,9 @@ mod tests {
         assert_eq!(transform.translation.vector, Vector3::new(0.0, 0.0, 1.0));
         assert_eq!(transform.rotation, UnitQuaternion::identity());
 
-        assert_eq!(child.position(), Vector3::new(0.0, 0.0, 1.0));
+        assert_eq!(child.position().unwrap(), Vector3::new(0.0, 0.0, 1.0));
         assert_eq!(
-            child.orientation().as_quaternion(),
+            child.orientation().unwrap().as_quaternion(),
             UnitQuaternion::identity()
         );
     }
@@ -816,10 +1030,7 @@ mod tests {
             .add_child("b", Vector3::new(0.0, 1.0, 0.0), UnitQuaternion::identity())
             .unwrap();
 
-        let root_borrow = root.borrow();
-        assert_eq!(root_borrow.children.len(), 2);
-        drop(root_borrow);
-
+        assert_eq!(root.children().len(), 2);
         assert_eq!(a.parent().unwrap().name(), "world");
         assert_eq!(b.parent().unwrap().name(), "world");
     }
@@ -834,21 +1045,24 @@ mod tests {
                 UnitQuaternion::identity(),
             )
             .unwrap();
-        let _grandchild = child
+        let grandchild = child
             .add_child("grandchild", Vector3::zeros(), UnitQuaternion::identity())
             .unwrap();
 
-        let removed = root.remove_child("child").unwrap();
-        assert!(removed.is_same(&child));
+        root.remove_child("child").unwrap();
         assert!(root.children().is_empty());
 
-        // The removed frame becomes a standalone root and keeps its subtree.
-        assert!(removed.parent().is_none());
+        // Handles to removed frames (including the subtree) become stale.
         assert!(matches!(
-            removed.transformation(),
-            Err(CartesianTreeError::RootHasNoParent(_))
+            child.transformation(),
+            Err(CartesianTreeError::FrameRemoved)
         ));
-        assert_eq!(removed.children().len(), 1);
+        assert!(matches!(
+            grandchild.transformation(),
+            Err(CartesianTreeError::FrameRemoved)
+        ));
+        assert_eq!(child.name(), "<removed>");
+        assert!(child.parent().is_none());
 
         // The name becomes available again.
         assert!(
@@ -864,51 +1078,69 @@ mod tests {
     }
 
     #[test]
-    fn test_lazy_ops_do_not_register_children() {
+    fn test_tree_stays_alive_through_any_handle() {
+        let leaf = {
+            let root = Frame::new_origin("root");
+            let mid = root
+                .add_child(
+                    "mid",
+                    Vector3::new(1.0, 0.0, 0.0),
+                    UnitQuaternion::identity(),
+                )
+                .unwrap();
+            mid.add_child(
+                "leaf",
+                Vector3::new(0.0, 2.0, 0.0),
+                UnitQuaternion::identity(),
+            )
+            .unwrap()
+        }; // All other handles are dropped here; the leaf keeps the tree alive.
+
+        assert_eq!(leaf.root().name(), "root");
+        assert_eq!(leaf.depth(), 2);
+        assert!(leaf.transformation().is_ok());
+
+        let leaf_in_root = leaf
+            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
+            .in_frame(&leaf.root())
+            .unwrap()
+            .transformation();
+        assert_relative_eq!(
+            leaf_in_root.translation.vector,
+            Vector3::new(1.0, 2.0, 0.0),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_threaded_access() {
         let root = Frame::new_origin("root");
         let child = root
             .add_child("child", Vector3::zeros(), UnitQuaternion::identity())
             .unwrap();
 
-        let derived = &child + z(5.0);
-        let rotated = &child * rz(0.5);
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                let child = child.clone();
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    for j in 0..100 {
+                        child
+                            .set(
+                                Vector3::new(f64::from(j), 0.0, f64::from(i)),
+                                UnitQuaternion::identity(),
+                            )
+                            .unwrap();
+                        let pose = root.add_pose(Vector3::zeros(), UnitQuaternion::identity());
+                        pose.in_frame(&child).unwrap();
+                    }
+                })
+            })
+            .collect();
 
-        // Derived frames must not accumulate in the tree.
-        assert!(child.children().is_empty());
-        assert_eq!(root.children().len(), 1);
-
-        // They still resolve transforms through the parent chain.
-        let derived_in_root = derived
-            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
-            .in_frame(&root)
-            .unwrap()
-            .transformation();
-        assert_relative_eq!(
-            derived_in_root.translation.vector,
-            Vector3::new(0.0, 0.0, 5.0),
-            epsilon = 1e-10
-        );
-        drop(rotated);
-    }
-
-    #[test]
-    fn test_chained_lazy_frames_survive_intermediate_drop() {
-        let root = Frame::new_origin("root");
-        let derived = {
-            let intermediate = &root + z(5.0);
-            &intermediate - y(3.0)
-        }; // The intermediate frame handle is dropped here.
-
-        let derived_in_root = derived
-            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
-            .in_frame(&root)
-            .unwrap()
-            .transformation();
-        assert_relative_eq!(
-            derived_in_root.translation.vector,
-            Vector3::new(0.0, -3.0, 5.0),
-            epsilon = 1e-10
-        );
+        for handle in handles {
+            handle.join().unwrap();
+        }
     }
 
     #[test]
@@ -932,65 +1164,41 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "already borrowed")]
-    fn test_borrow_conflict() {
-        let frame = Frame::new_origin("root");
-        let _borrow = frame.borrow(); // Immutable borrow
-        frame.borrow_mut(); // Should panic
+    fn test_chained_lazy_frames_survive_intermediate_drop() {
+        let root = Frame::new_origin("root");
+        let derived = {
+            let intermediate = &root + z(5.0);
+            &intermediate - y(3.0)
+        }; // The intermediate frame handle is dropped here.
+
+        let derived_in_root = derived
+            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
+            .in_frame(&root)
+            .unwrap()
+            .transformation();
+        assert_relative_eq!(
+            derived_in_root.translation.vector,
+            Vector3::new(0.0, -3.0, 5.0),
+            epsilon = 1e-10
+        );
     }
 
     #[test]
-    fn test_detached_frame_errors() {
-        let child = {
-            let root = Frame::new_origin("root");
-            root.add_child("child", Vector3::zeros(), UnitQuaternion::identity())
-                .unwrap()
-        }; // The root is dropped here, detaching the child.
+    fn test_derived_frames_are_read_only() {
+        let root = Frame::new_origin("root");
+        let derived = &root + z(5.0);
 
         assert!(matches!(
-            child.transformation(),
-            Err(CartesianTreeError::ParentDropped(_))
+            derived.set(Vector3::zeros(), UnitQuaternion::identity()),
+            Err(CartesianTreeError::DerivedFrameUnsupported(_))
         ));
         assert!(matches!(
-            child.set(Vector3::zeros(), UnitQuaternion::identity()),
-            Err(CartesianTreeError::ParentDropped(_))
+            derived.add_child("child", Vector3::zeros(), UnitQuaternion::identity()),
+            Err(CartesianTreeError::DerivedFrameUnsupported(_))
         ));
         assert!(matches!(
-            child.apply_in_parent_frame(&Isometry3::identity()),
-            Err(CartesianTreeError::ParentDropped(_))
-        ));
-        assert!(matches!(
-            child.apply_in_local_frame(&Isometry3::identity()),
-            Err(CartesianTreeError::ParentDropped(_))
-        ));
-
-        // A true root still reports the root-specific errors.
-        let root = Frame::new_origin("solo");
-        assert!(matches!(
-            root.transformation(),
-            Err(CartesianTreeError::RootHasNoParent(_))
-        ));
-        assert!(matches!(
-            root.set(Vector3::zeros(), UnitQuaternion::identity()),
-            Err(CartesianTreeError::CannotUpdateRootTransform(_))
-        ));
-    }
-
-    #[test]
-    fn test_walk_up_over_dropped_parent_reports_detached() {
-        let leaf = {
-            let root = Frame::new_origin("root");
-            let mid = root
-                .add_child("mid", Vector3::zeros(), UnitQuaternion::identity())
-                .unwrap();
-            mid.add_child("leaf", Vector3::zeros(), UnitQuaternion::identity())
-                .unwrap()
-        }; // Dropping the root drops "mid" as well, detaching the leaf.
-        let other_root = Frame::new_origin("other");
-
-        assert!(matches!(
-            leaf.walk_up_and_transform(&other_root),
-            Err(CartesianTreeError::ParentDropped(_))
+            derived.to_json(),
+            Err(CartesianTreeError::DerivedFrameUnsupported(_))
         ));
     }
 
@@ -1061,12 +1269,6 @@ mod tests {
             Vector3::new(1.0, 1.0, 2.0),
             epsilon = 1e-10
         );
-
-        // Test root frame error
-        assert!(
-            root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
-                .is_err()
-        );
     }
 
     #[test]
@@ -1109,12 +1311,6 @@ mod tests {
         assert_relative_eq!(roll, 0.0, epsilon = 1e-10);
         assert_relative_eq!(pitch, 0.0, epsilon = 1e-10);
         assert_relative_eq!(yaw, std::f64::consts::PI, epsilon = 1e-10);
-
-        // Test root frame error
-        assert!(
-            root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
-                .is_err()
-        );
     }
 
     #[test]
@@ -1177,12 +1373,6 @@ mod tests {
         assert_relative_eq!(roll, 0.0, epsilon = 1e-10);
         assert_relative_eq!(pitch, 0.0, epsilon = 1e-10);
         assert_relative_eq!(yaw, std::f64::consts::PI, epsilon = 1e-10);
-
-        // Test root frame error
-        assert!(
-            root.set(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity())
-                .is_err()
-        );
     }
 
     #[test]
@@ -1295,7 +1485,7 @@ mod tests {
 
         assert!(matches!(
             pose.in_frame(&tree_2),
-            Err(CartesianTreeError::NoCommonAncestor(..))
+            Err(CartesianTreeError::DifferentTrees(..))
         ));
     }
 
@@ -1384,7 +1574,7 @@ mod tests {
         let root = Frame::new_origin("root");
 
         // The parent of the calibrated frame is NOT the common ancestor and has a
-        // non-identity transform
+        // non-identity transform, so the composition order actually matters here.
         let mount = root
             .add_child(
                 "mount",
@@ -1537,7 +1727,7 @@ mod tests {
         }
         "#;
         root.apply_config(scaled_json).unwrap();
-        let q = child.orientation().as_quaternion();
+        let q = child.orientation().unwrap().as_quaternion();
         assert_relative_eq!(q.k, 1.0, epsilon = 1e-12);
         assert_relative_eq!(q.w, 0.0, epsilon = 1e-12);
 
@@ -1674,6 +1864,34 @@ mod tests {
             0.0,
             epsilon = 1e-10
         );
+    }
+
+    #[test]
+    fn test_lazy_ops_do_not_register_children() {
+        let root = Frame::new_origin("root");
+        let child = root
+            .add_child("child", Vector3::zeros(), UnitQuaternion::identity())
+            .unwrap();
+
+        let derived = &child + z(5.0);
+        let rotated = &child * rz(0.5);
+
+        // Derived frames must not accumulate in the tree.
+        assert!(child.children().is_empty());
+        assert_eq!(root.children().len(), 1);
+
+        // They still resolve transforms through the parent chain.
+        let derived_in_root = derived
+            .add_pose(Vector3::zeros(), UnitQuaternion::identity())
+            .in_frame(&root)
+            .unwrap()
+            .transformation();
+        assert_relative_eq!(
+            derived_in_root.translation.vector,
+            Vector3::new(0.0, 0.0, 5.0),
+            epsilon = 1e-10
+        );
+        drop(rotated);
     }
 
     #[test]
